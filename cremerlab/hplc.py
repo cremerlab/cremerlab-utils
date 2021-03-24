@@ -1,8 +1,13 @@
 import pandas as pd 
+import numpy as np
 from io import StringIO
+import scipy.signal
+import scipy.optimize
 import tqdm
 import os 
 from datetime import datetime
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def scrape_metadata(file, delimiter=','):
     """
@@ -282,4 +287,314 @@ def convert(file_path, detector='B', delimiter=',', metadata=False,  save=True,
     return out
 
 
+def approx_peak_integration(intensity, window=None):
+    """
+    Performs an approximate integration of the identified peaks
+    """
+
+class Chromatogram(object):
+    """
+    Base class for dealing with HPLC chromatograms
+    """
+    def __init__(self, csv_file=None, dataframe=None, time_window=None,
+                    cols={'time':'time_min', 'intensity':'intensity_mV'},
+                    csv_comment='#'):
+        """
+        Instantiates a chromatogram object on which peak detection and quantification
+        is performed.
+
+        Parameters
+        ----------
+        csv_file: str, optional
+            The path to the csv file of the chromatogram to analyze. If None, 
+            a pandas DataFrame of the chromatogram must be passed.
+        dataframe : pandas DataFrame, optional
+            a Pandas Dataframe of the chromatogram to analyze. If None, 
+            a path to the csv file must be passed
+        time_window: list [start, end], optional
+            The retention time window of the chromatogram to consider for analysis.
+            If None, the entire time range of the chromatogram will be considered.
+        cols: dict, keys of 'time', and 'intensity', optional
+            A dictionary of the retention time and intensity measurements 
+            of the chromatogram. Default is 
+            `{'time':'time_min', 'intensity':'intensity_mV'}`.
+        csv_comment: str, optional
+            Comment delimiter in the csv file if chromatogram is being read 
+            from disk.
+        """
+
+        # Peform type checks and throw exceptions where necessary. 
+        if (csv_file is None) & (dataframe is None):
+            raise RuntimeError(f'Neither `csv_file` or `dataframe` is provided!')
+        if (csv_file is not None) & (dataframe is not None):
+            raise RuntimeError(f'Either `csv_file` or `dataframe` must be provided, not both.')
+        if (csv_file is not None) & (type(csv_file) != str):
+            raise TypeError(f'`csv_file` must be a str. Type `{type(csv_file)}` was provided.')
+        if (dataframe is not None) & (type(dataframe) != pd.core.frame.DataFrame):
+            raise TypeError(f'`dataframe` must be of type `pd.core.frame.Dataframe`. Type `{type(dataframe)}` was provided')
+        if (time_window is not None):
+            if type(time_window) != list:
+                raise TypeError(f'`time_window` must be of type `list`. Type {type(time_window)} was proivided')
+            if len(time_window) != 2:
+                raise ValueError(f'`time_window` must be of length 2 (corresponding to start and end points). Provided list is of length {len(time_window)}.')
+
+        # Load the chromatogram and necessary components to self. 
+        if (csv_file is not None):
+            dataframe = pd.read_csv(csv_file, comment='#')
+        
+        # Prune to time window
+        if time_window is not None:
+            self.df = dataframe[(dataframe[cols['time']] >= time_window[0]) & 
+                              (dataframe[cols['time']] <= time_window[1])]
+        else: 
+            self.df = dataframe
+
+        # Add column dict
+        self.time_col = cols['time']
+        self.int_col = cols['intensity']
+
+        # Blank out vars that are used elsewhere
+        self.window_df = None
+        self.window_props = None
+        self.peaks = None
+
+    def _assign_peak_windows(self, prominence=0.01, rel_height=0.95, buffer=100):
+        """
+        Breaks the provided chromatogram down to windows of likely peaks. 
+
+        Parameters
+        ----------
+        prominence : float,  [0, 1]
+            The promimence threshold for identifying peaks. Prominence is the 
+            relative height of the normalized signal relative to the local
+            background. Default is 1%.
+        rel_height : float, [0, 1]
+            The relative height of the peak where the baseline is determined. 
+            Default is 95%.
+        buffer : positive int
+            The padding of peak windows in units of number of time steps. Default 
+            is 100 points on each side of the identified peak window.
+
+        Returns
+        -------
+        windows : pandas DataFrame
+            A Pandas DataFrame with each measurement assigned to an identified 
+            peak or overlapping peak set. This returns a copy of the chromatogram
+            DataFrame with  a column  for the local baseline and one column for 
+            the window IDs. Window ID of -1 corresponds to area not assigned to 
+            any peaks
+        """
+        for param, param_type in zip([prominence, rel_height, buffer], 
+                                     [float, float, int]):
+            if type(param) is not param_type:
+                raise TypeError(f'Parameter {param} must be of type `{param_type}`. Type `{type(param)}` was supplied.') 
+        if (prominence < 0) | (prominence > 1):
+            raise ValueError(f'Parameter `prominence` must be [0, 1].')
+        if (rel_height < 0) | (rel_height > 1):  
+            raise ValueError(f'Parameter `rel_height` must be [0, 1].')
+        if (buffer < 0):
+            raise ValueError('Parameter `buffer` cannot be less than 0.')
+
+        # Correct for a negative baseline 
+        df = self.df
+        min_int = df[self.int_col].min() 
+        if min_int < 0:
+           min_int = np.abs(min_int)    
+        intensity = df[self.int_col] + min_int
+
+        # Normalize the intensity 
+        norm_int = (intensity - intensity.min()) / (intensity.max() - intensity.min())
+
+        # Identify the peaks and get the widths and baselines
+        peaks, _ = scipy.signal.find_peaks(norm_int, prominence=prominence)
+        self.peaks_inds = peaks
+        out = scipy.signal.peak_widths(norm_int, peaks, rel_height=rel_height)
+        _, heights, left, right = out
+
+        # Set up the ranges
+        ranges = []
+        for l, r in zip(left, right):
+            if (l - buffer) < 0:
+                l = 0
+            else:
+                l -= buffer
+            if (r + buffer) > len(norm_int):
+                r = len(norm_int)
+            else:
+                r += buffer
+            ranges.append(np.arange(np.round(l), np.round(r), 1))
+
+        # Identiy subset ranges and remove
+        valid = [True] * len(ranges)
+        for i, r1 in enumerate(ranges):
+            for j, r2 in enumerate(ranges):
+                if i != j:
+                    if set(r2).issubset(r1):
+                        valid[j] = False
+        
+        # Keep only valid ranges and baselines
+        ranges = [r for i, r in enumerate(ranges) if valid[i] is True]
+        baselines = [h for i, h in enumerate(heights) if valid[i] is True]
+
+        # Copy the dataframe and return the windows
+        window_df = df.copy(deep=True)
+        window_df.sort_values(by=self.time_col, inplace=True)
+        window_df['time_idx'] = np.arange(len(window_df))
+        for i, r in enumerate(ranges):
+            window_df.loc[window_df['time_idx'].isin(r), 'window_idx'] = int(i + 1)
+            window_df.loc[window_df['time_idx'].isin(r), 'baseline'] = baselines[i]
+        window_df.dropna(inplace=True) 
+
+        # Convert this to a dictionary for easy parsing
+        window_dict = {}
+        for g, d in window_df.groupby('window_idx'):
+            _peaks = [p for p in peaks if p in d['time_idx'].values]
+            _dict = {'time_range':d[self.time_col].values,
+                     'intensity': d[self.int_col].values,
+                     'num_peaks': len(_peaks),
+                     'amplitude': [d[d['time_idx']==p][self.int_col].values[0] for p in _peaks],
+                     'location' : [d[d['time_idx']==p][self.time_col].values[0] for p in _peaks]
+                     }
+            window_dict[g] = _dict
+        self.window_props = window_dict
+        return window_df  
+
+    def _compute_skewnorm(self, x, *params):
+        R"""
+        Computes the lineshape of a skew-normal distribution given the shape,
+        location, and scale parameters
+
+        Parameters
+        ----------
+        x : float or numpy array
+            The time dimension of the skewnorm 
+        params : list, [amplitude, loc, scale, alpha]
+            Parameters for the shape and scale parameters of the skewnorm 
+            distribution.
+                amplitude : float; > 0
+                    Height of the peak.
+                loc : float; > 0
+                    The location parameter of the distribution.
+                scale : float; > 0
+                    The scale parameter of the distribution.
+                alpha : float; > 
+                    THe skew shape parater of the distribution.
+
+        Returns
+        -------
+        scaled_pdf : float or numpy array, same shape as `x`
+            The PDF of the skew-normal distribution scaled with the supplied 
+            amplitude.
+        """
+        amp, loc, scale, alpha = params
+        return amp * scipy.stats.skewnorm(alpha, loc=loc, scale=scale).pdf(x)
+
+    def _fit_skewnorms(self, x, *params):
+        R"""
+        Estimates the parameters of the distributions which consititute the 
+        peaks in the chromatogram. 
+
+        Parameters
+        ----------
+        x : float
+            The time dimension of the skewnorm 
+        params : list of length 4 x number of peaks, [amplitude, loc, scale, alpha]
+            Parameters for the shape and scale parameters of the skewnorm 
+            distribution. Must be provided in following order, repeating
+            for each distribution.
+                amplitude : float; > 0
+                    Height of the peak.
+                loc : float; > 0
+                    The location parameter of the distribution.
+                scale : float; > 0
+                    The scale parameter of the distribution.
+                alpha : float; > 
+                    THe skew shape parater of the distribution.
+
+        Returns
+        -------
+        out : float
+            The evaluated distribution at the given time x. This is the summed
+            value for all distributions modeled to construct the peak in the 
+            chromatogram.
+        """
+        # Get the number of peaks and reshape for easy indexing
+        n_peaks = int(len(params) / 4)
+        params = np.reshape(params, (n_peaks, 4))
+        out = 0
+        
+        # Evaluate each distribution
+        for i in range(n_peaks):
+            out += self._compute_skewnorm(x, *params[i])
+        return out
+        
+    def _estimate_peak_params(self, verbose=True):
+        R"""
+        For each peak window, estimate the parameters of skew-normal distributions 
+        which makeup the peak(s) in the window.  
+
+        Parameters
+        ----------
+        verbose : bool
+            If `True`, a progress bar will be printed during the inference.
+        """ 
+        if self.window_props is None:
+            raise RuntimeError('Function `_assign_peak_windows` must be run first. Go do that.')
+        if verbose:
+            iterator = tqdm.tqdm(self.window_props.items(), desc='Fitting peaks...')  
+        else:
+            iterator = self.window_props.items()
+
+        peak_props = {}
+        for k, v in iterator:
+            window_dict = {}
+            # Set up the initial guess
+            p0 = []
+            for i in range(v['num_peaks']):
+                p0.append(v['amplitude'][i])
+                p0.append(v['location'][i]),
+                p0.append(1) # scale parameter
+                p0.append(0) # Skew parameter, starts with assuming Gaussian
+
+            # Perform the inference
+            popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, v['time_range'],
+                                               v['intensity'], p0=p0, maxfev=int(1E4))
+
+            # Assemble the dictionary of output 
+            if v['num_peaks'] > 1:
+                popt = np.reshape(popt, (v['num_peaks'], 4)) 
+            else:
+                popt = [popt]
+            for i, p in enumerate(popt):
+                window_dict[f'peak_{i + 1}'] = {
+                            'amplitude': p[0],
+                            'retention_time': p[1],
+                            'std_dev': p[2],
+                            'alpha': p[3]}
+            peak_props[k] = window_dict
+        self.peak_props = peak_props
+        return peak_props
+
+
+               
+
+    def show(self):
+        """
+        Displays the chromatogram with mapped peaks if available.
+        """
+        sns.set()
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        ax.set_xlabel(self.time_col)
+        ax.set_ylabel(self.int_col)
+
+        # Show the raw chromatogram
+        if self.window_df is None:
+            ax.plot(self.df[self.time_col], self.df[self.int_col], '-', lw=2)
+        
+        else:
+            for g, d in self.window_df.groupby(['window_idx']):
+                ax.plot(d[self.time_col], d[self.int_col], label=int(g))
+
+            leg = ax.legend(title='window ID', bbox_to_anchor=(1, 1))
+    
 

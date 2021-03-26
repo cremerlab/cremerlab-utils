@@ -1,6 +1,7 @@
 import pandas as pd 
 import numpy as np
 from io import StringIO
+import shutil
 import scipy.signal
 import scipy.optimize
 import tqdm
@@ -17,9 +18,9 @@ def scrape_metadata(file, delimiter=','):
     Parameters
     ----------
     file : str 
-        The contents of the file as a string with newline characters (`\n`) present. 
+        The contents of the file as a string with newline characters (`\\n`) present. 
     delimiter: str 
-        The delimeter used in the file. If  tab-delimited, use `\t`.
+        The delimeter used in the file. If  tab-delimited, use `\\t`.
     Returns
     -------
     metadata_dict : dictionary
@@ -118,10 +119,13 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
         raise ValueError(f'Detector must be `A` or `B`. String of `{detector.upper()}` was provided.')
 
     # Parse and split the file to get the chromatogram
-    chrom = '\n'.join(file.split(
+    chrom = file.split(
                     f'[LC Chromatogram(Detector {detector.upper()}-Ch'
-                    )[1].split('\n')[1:-2])
-
+                    )[1]
+    if '[' in chrom:
+        chrom = chrom.split('[')[0]
+    
+    chrom = '\n'.join(chrom.split('\n')[1:-2])
     # Read into as a dataframe.
     df = pd.read_csv(StringIO(chrom), delimiter=delimiter, skiprows=6)
 
@@ -129,6 +133,8 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
     df.columns = ['time_min', 'intensity_mV']
     df['detector'] = detector
 
+    # Dropnas
+    df.dropna(inplace=True)
     # Determine if the metadata should be scraped and returned
     if metadata:
         metadata_dict = {}
@@ -141,8 +147,8 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
         out = df
     return out
 
-def convert(file_path, detector='B', delimiter=',', metadata=False,  save=True,
-            output_dir=None, save_prefix=None, save_suffix=None, verbose=True):
+def convert(file_path, detector='B', delimiter=',', output_dir=None, 
+            save_prefix=None, save_suffix=None, verbose=True):
     """
     Reads the ASCII output from a Shimadzu HPLC and returns a DataFrame of the
     chromatogram. Converted files can also be saved to disk with human-readable 
@@ -159,11 +165,6 @@ def convert(file_path, detector='B', delimiter=',', metadata=False,  save=True,
     delimiter: str 
         The delimiter used in the file. If  tab-delimited, use `\t`. Default is 
         a comma, `,`.
-    metadata : bool
-        If True, the file  and instrument metadata are returned as a dictionary.
-    save: bool 
-        If `True`, the dataframe is saved as a csv with the metadata as a 
-        header prefixed with '#'. Default is `False`.
     output_dir : str or None
         The output directory if the dataframe are to be saved to disk. If 
         `None` and `save = True`, the dataframe will be saved in the directory 
@@ -177,13 +178,6 @@ def convert(file_path, detector='B', delimiter=',', metadata=False,  save=True,
     verbose : bool 
         If True a progress bar will print if there's more than 10 files to 
         process.
-    Returns
-    -------
-    df : pandas DataFrame or list of pandas DataFrames.
-        The chromatograms for each file and detector pattern.   
-    metadata_dict : dict 
-        A dictionary of the sample and detector metadata. This is only 
-        returned if `metadata=True`. 
     """
 
     # Determine the size of the  
@@ -196,18 +190,16 @@ def convert(file_path, detector='B', delimiter=',', metadata=False,  save=True,
     else:
         iterator = enumerate(file_path)
     
-    # If save, determine the output directory
     #TODO: Make sure this works on a windows system
-    if (save is True) & (output_dir is None):
+    if output_dir is None:
         output_path = '/'.join(file_path[0].split('/')[:-1])
+        if os.path.isdir(f'{output_path}/out'):
+            shutil.rmtree(f'{output_path}/out')
         if os.path.isdir(f'{output_path}/out') == False:
             os.mkdir(f'{output_path}/out')
         output_path += '/out'
 
-    # Instantiate 
-    dfs = []
-    metadata_dict = [] 
-    for i, f in iterator:
+    for _, f in iterator:
         with open(f, 'r') as file:
             raw_file = file.read()
             # Get the file metadata 
@@ -242,8 +234,6 @@ def convert(file_path, detector='B', delimiter=',', metadata=False,  save=True,
                 chrom = chroms[0]
             else:
                 chrom = pd.concat(chrom, sort=False)
-            dfs.append(chrom)
-            metadata_dict.append(chrom_metadata)
             if type(detector) == str:
                 detector = [detector]
 
@@ -268,35 +258,27 @@ def convert(file_path, detector='B', delimiter=',', metadata=False,  save=True,
             if save_suffix is not None:
                 name += '_' + save_suffix
             name += '.csv'
-
-            if save:
-                save_name = f'{output_path}/{name}'
-                with open(save_name, 'a') as save_file:
-                    save_file.write(header)
-
-                    chrom.to_csv(save_file, index=False) 
-
-    # Determine what to return and get outta here.
-    if len(file_path) > 0:
-        df = dfs[0]
-        metadata_dict = metadata_dict[0]
-    if metadata: 
-        out = [df, metadata_dict]
-    else:
-        out = df
-    return out
-
-
-def approx_peak_integration(intensity, window=None):
-    """
-    Performs an approximate integration of the identified peaks
-    """
+            save_name = f'{output_path}/{name}'
+            if os.path.isfile(save_name):
+                exists = True
+                iter = 0
+                while exists:
+                    new_name = f'{save_name.split(".csv")[0]}_{iter}.csv'
+                    if os.path.isfile(new_name):
+                        iter += 1
+                    else:
+                        exists = False
+                save_name = new_name
+            with open(save_name, 'a') as save_file:
+                save_file.write(header)
+                chrom.to_csv(save_file, index=False) 
+    print('File(s) successfully converted!')
 
 class Chromatogram(object):
     """
     Base class for dealing with HPLC chromatograms
     """
-    def __init__(self, csv_file=None, dataframe=None, time_window=None,
+    def __init__(self, file=None, time_window=None,
                     cols={'time':'time_min', 'intensity':'intensity_mV'},
                     csv_comment='#'):
         """
@@ -305,9 +287,10 @@ class Chromatogram(object):
 
         Parameters
         ----------
-        csv_file: str, optional
-            The path to the csv file of the chromatogram to analyze. If None, 
-            a pandas DataFrame of the chromatogram must be passed.
+        file: str or pandas DataFrame, optional
+            The path to the csv file of the chromatogram to analyze or 
+            the pandas DataFrame of the chromatogram. If None, a pandas DataFrame 
+            of the chromatogram must be passed.
         dataframe : pandas DataFrame, optional
             a Pandas Dataframe of the chromatogram to analyze. If None, 
             a path to the csv file must be passed
@@ -324,41 +307,73 @@ class Chromatogram(object):
         """
 
         # Peform type checks and throw exceptions where necessary. 
-        if (csv_file is None) & (dataframe is None):
-            raise RuntimeError(f'Neither `csv_file` or `dataframe` is provided!')
-        if (csv_file is not None) & (dataframe is not None):
-            raise RuntimeError(f'Either `csv_file` or `dataframe` must be provided, not both.')
-        if (csv_file is not None) & (type(csv_file) != str):
-            raise TypeError(f'`csv_file` must be a str. Type `{type(csv_file)}` was provided.')
-        if (dataframe is not None) & (type(dataframe) != pd.core.frame.DataFrame):
-            raise TypeError(f'`dataframe` must be of type `pd.core.frame.Dataframe`. Type `{type(dataframe)}` was provided')
+        if file is None:
+            raise RuntimeError(f'File path or dataframe must be provided')
+        if (type(file) is not str) & (type(file) is not pd.core.frame.DataFrame):
+            raise RuntimeError(f'Argument must be either a filepath or pandas DataFrame. Argument is of type {type(file)}')
         if (time_window is not None):
             if type(time_window) != list:
                 raise TypeError(f'`time_window` must be of type `list`. Type {type(time_window)} was proivided')
             if len(time_window) != 2:
                 raise ValueError(f'`time_window` must be of length 2 (corresponding to start and end points). Provided list is of length {len(time_window)}.')
 
+        # Assign class variables 
+        self.time_col = cols['time']
+        self.int_col = cols['intensity']
+
         # Load the chromatogram and necessary components to self. 
-        if (csv_file is not None):
-            dataframe = pd.read_csv(csv_file, comment='#')
-        
+        if type(file) is str:
+            dataframe = pd.read_csv(file, comment='#')
+        else:
+            dataframe = file 
+        self.df = dataframe
+
         # Prune to time window
         if time_window is not None:
-            self.df = dataframe[(dataframe[cols['time']] >= time_window[0]) & 
-                              (dataframe[cols['time']] <= time_window[1])]
+            self.crop(time_window)
         else: 
             self.df = dataframe
 
-        # Add column dict
-        self.time_col = cols['time']
-        self.int_col = cols['intensity']
+         # Correct for a negative baseline 
+        df = self.df
+        min_int = df[self.int_col].min() 
+        intensity = df[self.int_col] - min_int
+        df['resc_intensity'] = intensity
+        self.resc_intensity = intensity
 
         # Blank out vars that are used elsewhere
         self.window_df = None
         self.window_props = None
         self.peaks = None
+        self.peak_df = None
 
-    def _assign_peak_windows(self, prominence=0.01, rel_height=0.95, buffer=100):
+    def crop(self, time_window=None, return_df=False):
+        """
+        Restricts the time dimension of the DataFrame
+
+        Parameters
+        ----------
+        time_window : list [start, end], optional
+            The retention time window of the chromatogram to consider for analysis.
+            If None, the entire time range of the chromatogram will be considered.
+        return_df : bool
+            If `True`, the cropped DataFrame is 
+
+        Returns
+        -------
+        cropped_df : pandas DataFrame
+            If `return_df = True`, then the cropped dataframe is returned.
+        """
+        if type(time_window) != list:
+                raise TypeError(f'`time_window` must be of type `list`. Type {type(time_window)} was proivided')
+        if len(time_window) != 2:
+                raise ValueError(f'`time_window` must be of length 2 (corresponding to start and end points). Provided list is of length {len(time_window)}.')
+        self.df = self.df[(self.df[self.time_col] >= time_window[0]) & 
+                          (self.df[self.time_col] <= time_window[1])]
+        if return_df:
+            return self.df
+
+    def _assign_peak_windows(self, prominence=0.01, rel_height=0.95, buffer=50):
         """
         Breaks the provided chromatogram down to windows of likely peaks. 
 
@@ -384,10 +399,11 @@ class Chromatogram(object):
             the window IDs. Window ID of -1 corresponds to area not assigned to 
             any peaks
         """
-        for param, param_type in zip([prominence, rel_height, buffer], 
+        for param, param_name, param_type in zip([prominence, rel_height, buffer], 
+                                     ['prominence', 'rel_height',  'buffer'],
                                      [float, float, int]):
             if type(param) is not param_type:
-                raise TypeError(f'Parameter {param} must be of type `{param_type}`. Type `{type(param)}` was supplied.') 
+                raise TypeError(f'Parameter {param_name} must be of type `{param_type}`. Type `{type(param)}` was supplied.') 
         if (prominence < 0) | (prominence > 1):
             raise ValueError(f'Parameter `prominence` must be [0, 1].')
         if (rel_height < 0) | (rel_height > 1):  
@@ -397,18 +413,14 @@ class Chromatogram(object):
 
         # Correct for a negative baseline 
         df = self.df
-        min_int = df[self.int_col].min() 
-        if min_int < 0:
-           min_int = np.abs(min_int)    
-        intensity = df[self.int_col] + min_int
-
-        # Normalize the intensity 
+        intensity = self.df[self.int_col].values
         norm_int = (intensity - intensity.min()) / (intensity.max() - intensity.min())
 
         # Identify the peaks and get the widths and baselines
         peaks, _ = scipy.signal.find_peaks(norm_int, prominence=prominence)
         self.peaks_inds = peaks
-        out = scipy.signal.peak_widths(norm_int, peaks, rel_height=rel_height)
+        out = scipy.signal.peak_widths(intensity, peaks, 
+                                       rel_height=rel_height)
         _, heights, left, right = out
 
         # Set up the ranges
@@ -441,8 +453,10 @@ class Chromatogram(object):
         window_df.sort_values(by=self.time_col, inplace=True)
         window_df['time_idx'] = np.arange(len(window_df))
         for i, r in enumerate(ranges):
-            window_df.loc[window_df['time_idx'].isin(r), 'window_idx'] = int(i + 1)
-            window_df.loc[window_df['time_idx'].isin(r), 'baseline'] = baselines[i]
+            window_df.loc[window_df['time_idx'].isin(r), 
+                                    'window_idx'] = int(i + 1)
+            window_df.loc[window_df['time_idx'].isin(r), 
+                                    'baseline'] = baselines[i]
         window_df.dropna(inplace=True) 
 
         # Convert this to a dictionary for easy parsing
@@ -450,7 +464,7 @@ class Chromatogram(object):
         for g, d in window_df.groupby('window_idx'):
             _peaks = [p for p in peaks if p in d['time_idx'].values]
             _dict = {'time_range':d[self.time_col].values,
-                     'intensity': d[self.int_col].values,
+                     'intensity': d[self.int_col] - baselines[i],
                      'num_peaks': len(_peaks),
                      'amplitude': [d[d['time_idx']==p][self.int_col].values[0] for p in _peaks],
                      'location' : [d[d['time_idx']==p][self.time_col].values[0] for p in _peaks]
@@ -541,7 +555,7 @@ class Chromatogram(object):
         if self.window_props is None:
             raise RuntimeError('Function `_assign_peak_windows` must be run first. Go do that.')
         if verbose:
-            iterator = tqdm.tqdm(self.window_props.items(), desc='Fitting peaks...')  
+            iterator = tqdm.tqdm(self.window_props.items(), desc='Fitting peak windows...')  
         else:
             iterator = self.window_props.items()
 
@@ -549,52 +563,134 @@ class Chromatogram(object):
         for k, v in iterator:
             window_dict = {}
             # Set up the initial guess
-            p0 = []
+            p0 = [] 
+            bounds = [[],  []] 
             for i in range(v['num_peaks']):
                 p0.append(v['amplitude'][i])
                 p0.append(v['location'][i]),
                 p0.append(1) # scale parameter
                 p0.append(0) # Skew parameter, starts with assuming Gaussian
 
-            # Perform the inference
-            popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, v['time_range'],
-                                               v['intensity'], p0=p0, maxfev=int(1E4))
+                # Set the bounds 
+                bounds[0].append(0)
+                bounds[0].append(v['time_range'].min())
+                bounds[0].append(0)
+                bounds[0].append(-5)
+                bounds[1].append(np.inf)
+                bounds[1].append(v['time_range'].max())
+                bounds[1].append(np.inf)
+                bounds[1].append(5)
 
-            # Assemble the dictionary of output 
-            if v['num_peaks'] > 1:
-                popt = np.reshape(popt, (v['num_peaks'], 4)) 
-            else:
-                popt = [popt]
-            for i, p in enumerate(popt):
-                window_dict[f'peak_{i + 1}'] = {
-                            'amplitude': p[0],
-                            'retention_time': p[1],
-                            'std_dev': p[2],
-                            'alpha': p[3]}
-            peak_props[k] = window_dict
+            # Perform the inference
+            try:
+                popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, v['time_range'],
+                                               v['intensity'], p0=p0, bounds=bounds,
+                                               maxfev=int(1E4))
+
+                # Assemble the dictionary of output 
+                if v['num_peaks'] > 1:
+                    popt = np.reshape(popt, (v['num_peaks'], 4)) 
+                else:
+                    popt = [popt]
+                for i, p in enumerate(popt):
+                    window_dict[f'peak_{i + 1}'] = {
+                                'amplitude': p[0],
+                                'retention_time': p[1],
+                                'std_dev': p[2],
+                                'alpha': p[3],
+                                'area':self._compute_skewnorm(v['time_range'], *p).sum()}
+                peak_props[k] = window_dict
+            except RuntimeError:
+                print('Warning: Parameters could not be inferred for one peak')
+
         self.peak_props = peak_props
         return peak_props
 
+    def quantify(self, time_window=None, prominence=0.01, rel_height=0.99, buffer=50, verbose=True):
+        """
+        Quantifies peaks present in the chromatogram
 
-               
+        Parameters
+        ----------
+        time_window: list [start, end], optional
+            The retention time window of the chromatogram to consider for analysis.
+            If None, the entire time range of the chromatogram will be considered.
+        prominence : float,  [0, 1]
+            The promimence threshold for identifying peaks. Prominence is the 
+            relative height of the normalized signal relative to the local
+            background. Default is 1%.
+        rel_height : float, [0, 1]
+            The relative height of the peak where the baseline is determined. 
+            Default is 95%.
+        buffer : positive int
+            The padding of peak windows in units of number of time steps. Default 
+            is 100 points on each side of the identified peak window. 
+        verbose : bool
+            If `True`, a progress bar will be printed during the inference. 
+        Returns
+        -------
+        peak_df : pandas DataFrame
+            A dataframe containing information for each detected peak
+        """
+        if time_window is not None:
+            dataframe = self.df
+            self.df = dataframe[(dataframe[self.time_col] >= time_window[0]) & 
+                              (dataframe[self.time_col] <= time_window[1])].copy(deep=True) 
+        # Assign the window bounds
+        windows = self._assign_peak_windows(prominence, rel_height, buffer)
+
+        # Infer the distributions for the peaks
+        peak_props = self._estimate_peak_params(verbose)
+
+        # Set up a dataframe of the peak properties
+        peak_df = pd.DataFrame([])
+        iter = 0 
+        for _, peaks in peak_props.items():
+            for _, params in peaks.items():
+                _dict = {'retention_time': params['retention_time'],
+                         'scale': params['std_dev'],
+                         'skew': params['alpha'],
+                         'amplitude': params['amplitude'],
+                         'area': params['area'],
+                         'peak_idx': iter}     
+                iter += 1
+                peak_df = peak_df.append(_dict, ignore_index=True)
+                peak_df['peak_idx'] = peak_df['peak_idx'].astype(int)
+        self.peak_df = peak_df
+        return peak_df
 
     def show(self):
         """
         Displays the chromatogram with mapped peaks if available.
         """
         sns.set()
-        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+
+        # Set up the figure    
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
         ax.set_xlabel(self.time_col)
         ax.set_ylabel(self.int_col)
 
-        # Show the raw chromatogram
-        if self.window_df is None:
-            ax.plot(self.df[self.time_col], self.df[self.int_col], '-', lw=2)
-        
-        else:
-            for g, d in self.window_df.groupby(['window_idx']):
-                ax.plot(d[self.time_col], d[self.int_col], label=int(g))
+        # Plot the raw chromatogram
+        ax.plot(self.df[self.time_col], self.df[self.int_col], 'k-', lw=2,
+                label='raw chromatogram') 
 
-            leg = ax.legend(title='window ID', bbox_to_anchor=(1, 1))
-    
+        # Compute the skewnorm mix 
+        if self.peak_df is not None:
+            time = self.df[self.time_col].values
+            out = np.zeros((len(time), len(self.peak_df)))
+            iter = 0
+            for _k , _v in self.peak_props.items():
+                for k, v in _v.items():
+                    params = [v['amplitude'], v['retention_time'], 
+                              v['std_dev'], v['alpha']]
+                    out[:, iter] = self._compute_skewnorm(time, *params)
+                    iter += 1
+            # Plot the mix
+            convolved = np.sum(out, axis=1)
+            ax.plot(time, convolved, 'r--', label='inferred mixture') 
+            for i in range(iter):
+                ax.fill_between(time, out[:, i], label=f'peak {i+1}', alpha=0.5)
+        ax.legend(bbox_to_anchor=(1,1))
+        fig.patch.set_facecolor((0, 0, 0, 0))
+        return [fig, ax]
 

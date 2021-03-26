@@ -5,6 +5,7 @@ import cremerlab.hplc
 import matplotlib.pyplot as plt 
 import scipy.signal
 import scipy.special
+import scipy.stats
 import imp 
 imp.reload(cremerlab.hplc)
 
@@ -17,12 +18,13 @@ time = np.arange(start, end, step)
 intensities = np.array([1700, 4000, 2000, 1000, 100, 3000, 1000, 1000, 3000])
 locs = 60 * np.array([2, 10, 15, 20, 25, 30, 31.5, 37, 38.5 ])
 scales =np.array([ 25, 15, 20, 30, 45, 20, 30, 30, 20])
+alphas = [0, 0, 8, 0, 0, 2, 0, 1, 2]
 ints = np.empty((len(locs), len(time)))
 
 for i, loc in enumerate(locs):
     intensity = intensities[i]
     sigma = scales[i]
-    signal = scipy.stats.norm(loc, sigma).pdf(time)
+    signal = scipy.stats.skewnorm(alphas[i], loc, sigma).pdf(time)
     signal *= signal.max()**-1
     ints[i, :] = intensity * signal
 
@@ -32,14 +34,15 @@ signal = np.sum(ints, axis=0)
 test_df = pd.DataFrame([])
 test_df['intensity_mV'] = signal
 test_df['time_min'] = time / 60
-
-chrom = cremerlab.hplc.Chromatogram(dataframe=test_df)
-window_df = chrom._assign_peak_windows()
-chrom._estimate_peak_params()
+# test_df = pd.read_csv('../exploratory_data/out/2021-03-17_NC_glucose_medium001_test.csv', comment='#')
+time_window = None
+chrom = cremerlab.hplc.Chromatogram(dataframe=test_df, time_window=time_window)
+peaks = chrom.quantify(buffer=10, rel_height=0.999)
+_ = chrom.show()
 
 #%%
 # Compute a normalized intensity
-# test_df = pd.read_csv('../exploratory_data/out/2021-03-17_NC_glucose_medium001_test.csv', comment='#')
+test_df = pd.read_csv('../exploratory_data/out/2021-03-17_NC_glucose_medium001_test.csv', comment='#')
 test_df['norm_int'] = (test_df['intensity_mV'].values - test_df['intensity_mV'].min())/\
                       (test_df['intensity_mV'].max() - test_df['intensity_mV'].min())
 
@@ -47,6 +50,7 @@ test_df['norm_int'] = (test_df['intensity_mV'].values - test_df['intensity_mV'].
 # test_df['time_idx'] = np.arange(len(test_df), 1)
 
 # find the peaks 
+
 peaks, _= scipy.signal.find_peaks(test_df['norm_int'], prominence=0.01)
 #%%
 # Get the base positions and heights 

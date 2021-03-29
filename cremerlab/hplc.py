@@ -181,7 +181,7 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
     """
 
     # Determine the size of the  
-    if type(file_path) is str:
+    if type(file_path) is not list:
         file_path = [file_path]
 
     # Determine if there should be a verbose output
@@ -338,8 +338,6 @@ class Chromatogram(object):
         df = self.df
         min_int = df[self.int_col].min() 
         intensity = df[self.int_col] - min_int
-        df['resc_intensity'] = intensity
-        self.resc_intensity = intensity
 
         # Blank out vars that are used elsewhere
         self.window_df = None
@@ -373,7 +371,7 @@ class Chromatogram(object):
         if return_df:
             return self.df
 
-    def _assign_peak_windows(self, prominence=0.01, rel_height=0.95, buffer=50):
+    def _assign_peak_windows(self, prominence=1E-3, rel_height=0.95, buffer=50):
         """
         Breaks the provided chromatogram down to windows of likely peaks. 
 
@@ -568,18 +566,18 @@ class Chromatogram(object):
             for i in range(v['num_peaks']):
                 p0.append(v['amplitude'][i])
                 p0.append(v['location'][i]),
-                p0.append(1) # scale parameter
+                p0.append(3) # scale parameter
                 p0.append(0) # Skew parameter, starts with assuming Gaussian
 
                 # Set the bounds 
                 bounds[0].append(0)
                 bounds[0].append(v['time_range'].min())
                 bounds[0].append(0)
-                bounds[0].append(-5)
-                bounds[1].append(np.inf)
+                bounds[0].append(-0.1)
+                bounds[1].append(10 * v['amplitude'][i])
                 bounds[1].append(v['time_range'].max())
                 bounds[1].append(np.inf)
-                bounds[1].append(5)
+                bounds[1].append(0.1)
 
             # Perform the inference
             try:
@@ -602,11 +600,11 @@ class Chromatogram(object):
                 peak_props[k] = window_dict
             except RuntimeError:
                 print('Warning: Parameters could not be inferred for one peak')
-
         self.peak_props = peak_props
         return peak_props
 
-    def quantify(self, time_window=None, prominence=0.01, rel_height=0.99, buffer=50, verbose=True):
+    def quantify(self, time_window=None, prominence=1E-3, rel_height=0.95, 
+                 buffer=50, verbose=True):
         """
         Quantifies peaks present in the chromatogram
 
@@ -652,11 +650,23 @@ class Chromatogram(object):
                          'skew': params['alpha'],
                          'amplitude': params['amplitude'],
                          'area': params['area'],
-                         'peak_idx': iter}     
+                         'peak_idx': iter + 1}     
                 iter += 1
                 peak_df = peak_df.append(_dict, ignore_index=True)
                 peak_df['peak_idx'] = peak_df['peak_idx'].astype(int)
         self.peak_df = peak_df
+
+        # Compute the mixture
+        time = self.df[self.time_col].values
+        out = np.zeros((len(time), len(peak_df)))
+        iter = 0
+        for _k , _v in self.peak_props.items():
+            for k, v in _v.items():
+                params = [v['amplitude'], v['retention_time'], 
+                          v['std_dev'], v['alpha']]
+                out[:, iter] = self._compute_skewnorm(time, *params)
+                iter += 1
+        self.mix_array = out
         return peak_df
 
     def show(self):
@@ -677,20 +687,124 @@ class Chromatogram(object):
         # Compute the skewnorm mix 
         if self.peak_df is not None:
             time = self.df[self.time_col].values
-            out = np.zeros((len(time), len(self.peak_df)))
-            iter = 0
-            for _k , _v in self.peak_props.items():
-                for k, v in _v.items():
-                    params = [v['amplitude'], v['retention_time'], 
-                              v['std_dev'], v['alpha']]
-                    out[:, iter] = self._compute_skewnorm(time, *params)
-                    iter += 1
             # Plot the mix
-            convolved = np.sum(out, axis=1)
+            convolved = np.sum(self.mix_array, axis=1)
             ax.plot(time, convolved, 'r--', label='inferred mixture') 
-            for i in range(iter):
-                ax.fill_between(time, out[:, i], label=f'peak {i+1}', alpha=0.5)
+            for i in range(len(self.peak_df)):
+                ax.fill_between(time, self.mix_array[:, i], label=f'peak {i+1}', 
+                                alpha=0.5)
         ax.legend(bbox_to_anchor=(1,1))
         fig.patch.set_facecolor((0, 0, 0, 0))
         return [fig, ax]
+
+
+def batch_process(file_paths, time_window=None,  show_viz=False,
+                  cols={'time':'time_min', 'intensity':'intensity_mV'},  
+                  **kwargs):
+    """
+    Performs complete quantification of a set of HPLC data. Data must first 
+    be converted to a tidy long-form CSV file by using `cremerlab.hplc.convert`
+
+    Parameters
+    ----------
+    file_paths : list of str
+        A list of the file paths.
+    time_window : list, optional
+        The upper and lower and upper time bounds to consider for the analysis.
+        Default is `None`, meaning the whole chromatogram is considered.
+    show_viz : bool 
+        If `True`, the plot is printed to the screen. If `False`, a plot is 
+        generated and returned, just not shown.
+    cols: dict, keys of 'time', and 'intensity', optional
+        A dictionary of the retention time and intensity measurements of the 
+        chromatogram. Default is `{'time':'time_min', 'intensity':'intensity_mV'}`.
+    kwargs: dict, **kwargs
+        **kwargs for the peak quantification function `cremerlab.hplc.Chromatogram.quantify`
+
+    Returns 
+    --------
+    chrom_df : pandas DataFrame
+        A pandas DataFrame  of all of the chromatograms, indexed by file name
+    peak_df : pandas DataFrame
+        A pandas DataFrame of all identified peaks, indexed by file name 
+    fig : matplotlib.figure.Figure
+        Matplotlib figure object for the chromatograms
+    ax :  matplotlib AxesSubplot
+        The axes of the matplotlib figure
+    """
+
+    # Instantiate storage lists
+    chrom_dfs, peak_dfs, mixes = [], [], []
+
+    # Perform the processing for each file
+    for i, f in enumerate(tqdm.tqdm(file_paths, desc='Processing files...')):
+        # Generate the sample id
+        if '/' in f:
+            file_name = f.split('/')[-1]
+        else:
+            file_name = f
+
+        # Check for common file name extension
+        for pat in ['.csv', '.txt']:
+            if pat in file_name:
+                file_name = file_name.split(pat)[0]
+                continue
+
+        # Parse teh chromatogram and quantify the peaks
+        chrom = Chromatogram(f, cols=cols, time_window=time_window)
+        peaks = chrom.quantify(verbose=False, **kwargs)
+
+        # Set up the dataframes for chromatograms and peaks
+        _df = chrom.df
+        _df['sample'] = file_name
+        peaks['sample'] = file_name
+        peak_dfs.append(peaks)
+        chrom_dfs.append(chrom.df)
+        mixes.append(chrom.mix_array)
+
+    # Concateante the dataframe
+    chrom_df = pd.concat(chrom_dfs, sort=False)
+    peak_df = pd.concat(peak_dfs, sort=False) 
+
+    # Determine the size of the figure
+    num_traces = len(chrom_df['sample'].unique())
+    num_cols = int(2)
+    num_rows = int(np.ceil(num_traces / num_cols))
+    unused_axes = (num_cols * num_rows) - num_traces
+
+    # Instantiate the figure
+    fig, ax = plt.subplots(num_rows, num_cols, figsize=(3 * num_cols, 2 * num_rows))
+
+    ax = ax.ravel()
+
+    for a in ax:
+        a.xaxis.set_tick_params(labelsize=8)
+        a.yaxis.set_tick_params(labelsize=8)
+    for i in range(unused_axes):
+        ax[-(i + 1)].axis('off')
+
+    # Assign samples to axes.
+    mapper = {g: i for i, g in enumerate(chrom_df['sample'].unique())} 
+
+    # Plot the chromatogram
+    for g, d in chrom_df.groupby(['sample']): 
+        ax[mapper[g]].plot(d[cols['time']], d[cols['intensity']], 'k-', lw=0.5)
+        ax[mapper[g]].set_title(g, fontsize=8)
+
+    # Plot the mapped peaks
+    for g, d in peak_df.groupby(['sample']):
+        mix = mixes[mapper[g]] 
+        convolved = np.sum(mix, axis=1)
+        for i in range(len(d)): 
+            _m = np.array(mix[:, i])
+            time = np.linspace(time_window[0], time_window[1], len(_m))
+            ax[mapper[g]].fill_between(time, 0, _m, alpha=0.5, label=f'peak {i + 1}')
+
+        time = np.linspace(time_window[0], time_window[1], len(convolved))
+        ax[mapper[g]].plot(time, convolved, '--', color='red', lw=0.5, 
+                            label=f'inferred mixture')
+    plt.tight_layout()
+    if show_viz == False:
+        plt.close()
+    return [chrom_df, peak_df, fig, ax]
 

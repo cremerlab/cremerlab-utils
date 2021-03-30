@@ -5,7 +5,6 @@
 *.zwf
 *.DS_*tore
 *.tif*
-*.png
 *.csv
 __pycache__
 *checkpoints*

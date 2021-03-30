@@ -10,6 +10,7 @@ Welcome to cremerlab-utils's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   hplc_processing.ipynb
 
 
 Indices and tables

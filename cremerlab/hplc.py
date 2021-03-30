@@ -176,7 +176,7 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
         A suffix to append to the file name if saved to disk. If None, 
         saved filed will just be `SAMPLE_NAME.csv`.       
     verbose : bool 
-        If True a progress bar will print if there's more than 10 files to 
+        If True a progress bar will print if there's more than 5 files to 
         process.
     """
 
@@ -185,7 +185,7 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
         file_path = [file_path]
 
     # Determine if there should be a verbose output
-    if (verbose is True) & (len(file_path) >= 10):
+    if (verbose is True) & (len(file_path) >= 5):
         iterator = enumerate(tqdm.tqdm(file_path, desc='Converting ASCII output.'))
     else:
         iterator = enumerate(file_path)
@@ -193,11 +193,11 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
     #TODO: Make sure this works on a windows system
     if output_dir is None:
         output_path = '/'.join(file_path[0].split('/')[:-1])
-        if os.path.isdir(f'{output_path}/out'):
-            shutil.rmtree(f'{output_path}/out')
-        if os.path.isdir(f'{output_path}/out') == False:
-            os.mkdir(f'{output_path}/out')
-        output_path += '/out'
+        if os.path.isdir(f'{output_path}/converted'):
+            shutil.rmtree(f'{output_path}/converted')
+        if os.path.isdir(f'{output_path}/converted') == False:
+            os.mkdir(f'{output_path}/converted')
+        output_path += '/converted'
 
     for _, f in iterator:
         with open(f, 'r') as file:
@@ -242,7 +242,7 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
 # {file_metadata['Sample Name']}
 # ------------------------------
 # Acquired: {file_metadata['Acquired']}
-# Converted: {datetime.now().strftime('%H:%M -- %Y-%m-%d')}
+# Converted: {datetime.now().strftime('%m/%d/%Y %I:%m:%S %p')}
 # Vial: {file_metadata['Vial#']}
 # Injection Volume: {file_metadata['Injection Volume']} uL
 # Sample ID: {file_metadata['Sample ID']}
@@ -272,7 +272,7 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
             with open(save_name, 'a') as save_file:
                 save_file.write(header)
                 chrom.to_csv(save_file, index=False) 
-    print('File(s) successfully converted!')
+    print(f'Converted file(s) saved to `{output_path}`')
 
 class Chromatogram(object):
     """
@@ -371,7 +371,7 @@ class Chromatogram(object):
         if return_df:
             return self.df
 
-    def _assign_peak_windows(self, prominence=1E-3, rel_height=0.95, buffer=50):
+    def _assign_peak_windows(self, prominence, rel_height, buffer):
         """
         Breaks the provided chromatogram down to windows of likely peaks. 
 
@@ -420,6 +420,8 @@ class Chromatogram(object):
         out = scipy.signal.peak_widths(intensity, peaks, 
                                        rel_height=rel_height)
         _, heights, left, right = out
+        widths, _, _, _ = scipy.signal.peak_widths(intensity, peaks, 
+                                       rel_height=0.5)
 
         # Set up the ranges
         ranges = []
@@ -459,13 +461,16 @@ class Chromatogram(object):
 
         # Convert this to a dictionary for easy parsing
         window_dict = {}
+        time_step = np.mean(np.diff(self.df[self.time_col].values))
         for g, d in window_df.groupby('window_idx'):
             _peaks = [p for p in peaks if p in d['time_idx'].values]
+            peak_inds = [x for _p in _peaks for x in np.where(peaks == _p)[0]]
             _dict = {'time_range':d[self.time_col].values,
                      'intensity': d[self.int_col] - baselines[i],
                      'num_peaks': len(_peaks),
                      'amplitude': [d[d['time_idx']==p][self.int_col].values[0] for p in _peaks],
-                     'location' : [d[d['time_idx']==p][self.time_col].values[0] for p in _peaks]
+                     'location' : [d[d['time_idx']==p][self.time_col].values[0] for p in _peaks],
+                     'width' :    [widths[ind] * time_step for ind in peak_inds]
                      }
             window_dict[g] = _dict
         self.window_props = window_dict
@@ -566,18 +571,18 @@ class Chromatogram(object):
             for i in range(v['num_peaks']):
                 p0.append(v['amplitude'][i])
                 p0.append(v['location'][i]),
-                p0.append(3) # scale parameter
+                p0.append(v['width'][i] / 2) # scale parameter
                 p0.append(0) # Skew parameter, starts with assuming Gaussian
 
                 # Set the bounds 
                 bounds[0].append(0)
                 bounds[0].append(v['time_range'].min())
                 bounds[0].append(0)
-                bounds[0].append(-0.1)
-                bounds[1].append(10 * v['amplitude'][i])
+                bounds[0].append(-np.inf)
+                bounds[1].append(np.inf)
                 bounds[1].append(v['time_range'].max())
                 bounds[1].append(np.inf)
-                bounds[1].append(0.1)
+                bounds[1].append(np.inf)
 
             # Perform the inference
             try:
@@ -603,8 +608,8 @@ class Chromatogram(object):
         self.peak_props = peak_props
         return peak_props
 
-    def quantify(self, time_window=None, prominence=1E-3, rel_height=0.95, 
-                 buffer=50, verbose=True):
+    def quantify(self, time_window=None, prominence=1E-3, rel_height=0.99, 
+                 buffer=100, verbose=True):
         """
         Quantifies peaks present in the chromatogram
 
@@ -635,7 +640,7 @@ class Chromatogram(object):
             self.df = dataframe[(dataframe[self.time_col] >= time_window[0]) & 
                               (dataframe[self.time_col] <= time_window[1])].copy(deep=True) 
         # Assign the window bounds
-        windows = self._assign_peak_windows(prominence, rel_height, buffer)
+        _ = self._assign_peak_windows(prominence, rel_height, buffer)
 
         # Infer the distributions for the peaks
         peak_props = self._estimate_peak_params(verbose)
@@ -778,8 +783,10 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
     ax = ax.ravel()
 
     for a in ax:
-        a.xaxis.set_tick_params(labelsize=8)
-        a.yaxis.set_tick_params(labelsize=8)
+        a.xaxis.set_tick_params(labelsize=6)
+        a.yaxis.set_tick_params(labelsize=6)
+        a.set_ylabel(cols['intensity'], fontsize=6)
+        a.set_xlabel(cols['time'], fontsize=6)
     for i in range(unused_axes):
         ax[-(i + 1)].axis('off')
 
@@ -788,7 +795,8 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
 
     # Plot the chromatogram
     for g, d in chrom_df.groupby(['sample']): 
-        ax[mapper[g]].plot(d[cols['time']], d[cols['intensity']], 'k-', lw=0.5)
+        ax[mapper[g]].plot(d[cols['time']], d[cols['intensity']], 'k-', lw=0.5,
+                           label='raw chromatogram')
         ax[mapper[g]].set_title(g, fontsize=8)
 
     # Plot the mapped peaks
@@ -804,7 +812,9 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
         ax[mapper[g]].plot(time, convolved, '--', color='red', lw=0.5, 
                             label=f'inferred mixture')
     plt.tight_layout()
+    fig.patch.set_facecolor((0, 0, 0, 0))
+    ax[0].legend(fontsize=6)
     if show_viz == False:
         plt.close()
-    return [chrom_df, peak_df, fig, ax]
+    return [chrom_df, peak_df, [fig, ax]]
 

@@ -75,13 +75,13 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
     Parameters
     ----------
     file : str 
-        The contents of the file as a string with newline characters (`\n`) present. 
+        The contents of the file as a string with newline characters (`\\n`) present. 
     detector: str, 'A' or 'B'
         The name of the detector in the file. Default is `B`. Note that only that only 
         'A' or 'B' is an acceptable input and not the complete detector name such as 
         'LC Chromatogram(Detector B-Ch1)'.
     delimiter: str 
-        The delimeter used in the file. If  tab-delimited, use `\t`.
+        The delimeter used in the file. If  tab-delimited, use `\\t`.
     metadata : bool
         If `true`, a dictionary with the metadata about the detector is returned. 
         Default is True. 
@@ -102,7 +102,7 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
 
     Raises
     ------
-    TypeError
+    TypeError :
         Raised if file, detctor, or delimiter is not of type `str`.
     ValueError:
         Raised if `[LC Chromatogram(Detector`, `\\n`, or delimiter is not present in file.
@@ -629,11 +629,12 @@ class Chromatogram(object):
             The padding of peak windows in units of number of time steps. Default 
             is 100 points on each side of the identified peak window. 
         verbose : bool
-            If `True`, a progress bar will be printed during the inference. 
+            If True, a progress bar will be printed during the inference. 
+
         Returns
         -------
         peak_df : pandas DataFrame
-            A dataframe containing information for each detected peak
+            A dataframe containing information for each detected peak.
         """
         if time_window is not None:
             dataframe = self.df

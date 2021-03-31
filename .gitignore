@@ -6,5 +6,9 @@
 *.DS_*tore
 *.tif*
 *.csv
+*.whl
+*.gz
+build/
+dist/
 __pycache__
 *checkpoints*

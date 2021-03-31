@@ -5,20 +5,29 @@ Cremer  Lab at Stanford University. This is very much in development and  will
 be expanded as the utilities for the lab expands 
 
 # Installation 
-While it's still in development, the package can be installed using pip from the 
-command line
-
-```
-pip install cremerlab-utils
-```
-
 If you are interested in contributing to the development, it can be installed 
-locally via 
+locally via the [Python Package installer](https://pypi.org/project/pip/) `pip`
+via the command line. 
 
 ```
-git clone git@github.com:cremerlab/cremerlab-utils
-cd cremerlab-utils
-pip install -e ./
+$ pip install cremerlab-utils
+```
+
+If you are interested in contributing to the development of the software, 
+you can clone or fork the [GitHub Repository](https://github.com/cremerlab/cremerlab-utils)
+and install the package locally as follows:
+
+```
+$ git clone git@github.com:cremerlab/cremerlab-utils
+$ cd cremerlab-utils
+$ pip install -e ./
+```
+
+If you don't want to clone the source repository, you can install the development
+version directly from GitHub:
+
+```
+$ pip install -e git+https://github.com/cremerlab/cremerlab-utils.git
 ```
 
 # License

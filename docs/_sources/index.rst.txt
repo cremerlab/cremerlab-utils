@@ -21,9 +21,8 @@ via the command line.::
 
 If you are interested in contributing to the development of the software, 
 you can clone or fork the `GitHub Repository <https://github.com/cremerlab/cremerlab-utils>`_
-and install the package locally as follows:
+and install the package locally as follows::
 
-.. code-block:: bash
    $ git clone git@github.com:cremerlab/cremerlab-utils
    $ cd cremerlab-utils
    $ pip install -e ./

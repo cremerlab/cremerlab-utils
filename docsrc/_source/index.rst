@@ -40,10 +40,11 @@ issues, or bugs, please get in touch via the `Git Issues <https://github.com/cre
 page.
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 3
    :caption: User Guide 
 
    getting_started/hplc_processing.ipynb
+   getting_started/growth_analysis.ipynb
 
 .. toctree::
    :maxdepth: 4

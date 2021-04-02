@@ -64,6 +64,7 @@ def steady_state_growth_rate_log_posterior(params, time, od, neg=True):
         """
         Computes the theoretical optical density as a function of time 
         given the growth rate (lam) and the initial optical density (od_init)
+
         """
         return od_init * np.exp(lam * time)
 
@@ -71,6 +72,7 @@ def steady_state_growth_rate_log_posterior(params, time, od, neg=True):
         """
         Defines the log prior for the growth rate (lam), initial optical density
         (od_init), and the homoscedastic error (sigma) as a gamma distribution. 
+
         """
         lam_lp = scipy.stats.gamma.logpdf(lam, 2.20, loc=0, scale=0.2)
         sig_lp = scipy.stats.gamma.logpdf(sigma, 2.20, loc=0, scale=0.2)
@@ -82,6 +84,7 @@ def steady_state_growth_rate_log_posterior(params, time, od, neg=True):
         Defines the log likelihood for the growth rate. Likelihood function is 
         assumed to be a normal distribution with a mean defined by the 
         theoretical exponential growth and a homoscedastic error.
+
         """
         mu = _theoretical_od(time, lam, od_init)
         return np.sum(scipy.stats.norm.logpdf(od, mu, sigma))

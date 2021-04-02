@@ -93,11 +93,9 @@
 <li class="toctree-l1"><a class="reference internal" href="hplc_processing.html">HPLC Processing &amp; Analysis</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Analyzing Growth Curves</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#Overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#Tabulating-your-data">Tabulating your data</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#Estimating-Parameters">Estimating Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#Visualing-the-Inference">Visualing the Inference</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="#Tabulating-your-data">Tabulating your data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Estimating-Parameters">Estimating Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#Visualing-the-Inference">Visualing the Inference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#Appendix:-Statistical-Model-for-Growth-Rate-Inference">Appendix: Statistical Model for Growth Rate Inference</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#Assembling-the-Posterior-Distribution">Assembling the Posterior Distribution</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#The-Likelihood-Function">The Likelihood Function</a></li>
@@ -552,8 +550,9 @@ to the biomass. Thus, given trustworthy measurements of the <span class="math no
 </div></div>
 </div>
 <p>Note that here wew have renamed the “Preculture” column as <code class="docutils literal notranslate"><span class="pre">replicate</span></code> as that better captures the meaning of that identifier. We have also renamed “OD” to the more descriptive name <code class="docutils literal notranslate"><span class="pre">od_600nm</span></code> which specifies the important information of the measurement wavelength.</p>
+</div>
 <div class="section" id="Estimating-Parameters">
-<h3>Estimating Parameters<a class="headerlink" href="#Estimating-Parameters" title="Permalink to this headline">¶</a></h3>
+<h2>Estimating Parameters<a class="headerlink" href="#Estimating-Parameters" title="Permalink to this headline">¶</a></h2>
 <p>There are a few steps we need to take to convert this data table to an inferred growth rate.</p>
 <ol class="arabic simple">
 <li><p><strong>Convert the ``clock_time`` to ``elapsed_time``.</strong> While the clock time is easy to record, it takes a bit of math to figure out how much time has elapsed from one measurement to the next.</p></li>
@@ -789,7 +788,7 @@ homoscedastic error, σ = 0.01 ± 0.002 [a.u.]
 <p>This contains the parameter estimates as well as their credible intervals (CI’s). This is also a long-form tidy DataFrame with each row corresponding to a single estimate.</p>
 </div>
 <div class="section" id="Visualing-the-Inference">
-<h3>Visualing the Inference<a class="headerlink" href="#Visualing-the-Inference" title="Permalink to this headline">¶</a></h3>
+<h2>Visualing the Inference<a class="headerlink" href="#Visualing-the-Inference" title="Permalink to this headline">¶</a></h2>
 <p>Doing the estimate is only half of the battle. You should always plot your data along with the information about the inference to see if the results pass the eye test.</p>
 <p>Creating a visualization of these data can be included as an argument in the <code class="docutils literal notranslate"><span class="pre">cremerlab.growth.infer_growth_rate</span></code> function, which makes a plot of the measurements, line of best fit, and approximate posterior distribution marginalized over the homoscedastic error σ. To generate this fiz, we just have to pass the <code class="docutils literal notranslate"><span class="pre">viz=True</span></code> argument to the inference.</p>
 <div class="nbinput docutils container">
@@ -856,7 +855,6 @@ fits on the left-hand plots.</p>
 <div class="highlight"><pre>
 &lt;Figure size 432x288 with 0 Axes&gt;
 </pre></div></div>
-</div>
 </div>
 </div>
 <div class="section" id="Appendix:-Statistical-Model-for-Growth-Rate-Inference">

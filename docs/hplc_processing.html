@@ -34,6 +34,8 @@
         <script src="_static/doctools.js"></script>
         <script src="_static/language_data.js"></script>
         <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+        <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+        <script type="text/x-mathjax-config">MathJax.Hub.Config({"tex2jax": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true, "ignoreClass": "document", "processClass": "math|output_area"}})</script>
     
     <script type="text/javascript" src="_static/js/theme.js"></script>
 
@@ -599,7 +601,7 @@ time_min,intensity_mV,detector
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Converting ASCII output.: 100%|██████████| 9/9 [00:00&lt;00:00, 31.59it/s]Converted file(s) saved to `data/2021-03-26_calibration/converted`
+Converting ASCII output.: 100%|██████████| 9/9 [00:00&lt;00:00, 18.04it/s]Converted file(s) saved to `data/2021-03-26_calibration/converted`
 
 </pre></div></div>
 </div>
@@ -657,7 +659,7 @@ save_suffix : str
 verbose : bool
     If True a progress bar will print if there&#39;s more than 5 files to
     process.
-<span class="ansi-red-fg">File:</span>      ~/Dropbox/git/postdoc_projects/cremerlab-utils/cremerlab/hplc.py
+<span class="ansi-red-fg">File:</span>      /opt/anaconda3/lib/python3.8/site-packages/cremerlab/hplc.py
 <span class="ansi-red-fg">Type:</span>      function
 </pre></div></div>
 </div>
@@ -699,7 +701,7 @@ verbose : bool
 </div>
 <div class="output_area docutils container">
 <div class="highlight"><pre>
-&lt;cremerlab.hplc.Chromatogram at 0x7fb67bdc1940&gt;
+&lt;cremerlab.hplc.Chromatogram at 0x7ff5fae0ca90&gt;
 </pre></div></div>
 </div>
 <p>The variable <code class="docutils literal notranslate"><span class="pre">chrom</span></code> is assigned to a <code class="docutils literal notranslate"><span class="pre">Chromatogram</span></code> object, which by itself is not useful. To explore the chromatogram, we can can call the <code class="docutils literal notranslate"><span class="pre">show()</span></code> method on the chromatogram, which will plot the intensity as a function of time</p>
@@ -776,12 +778,12 @@ verbose : bool
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Fitting peak windows...: 100%|██████████| 2/2 [00:01&lt;00:00,  1.25it/s]
+Fitting peak windows...: 100%|██████████| 2/2 [00:00&lt;00:00,  2.82it/s]
 </pre></div></div>
 </div>
 <p>We can show the inferred peak distributions overlaid with the raw chromatogram again by calling the <code class="docutils literal notranslate"><span class="pre">show</span></code> method</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[10]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre>
@@ -790,7 +792,7 @@ Fitting peak windows...: 100%|██████████| 2/2 [00:01&lt;00:0
 </div>
 </div>
 <div class="nboutput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[10]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
 </pre></div>
 </div>
 <div class="output_area docutils container">
@@ -808,7 +810,7 @@ Fitting peak windows...: 100%|██████████| 2/2 [00:01&lt;00:0
 <p>Here, the raw chromatogram is shown in solid black, the individual peaks are shown in different colors (blue, orange, and green) and the inferred mixture distribution is shown as a dashed red line. <strong>It’s important to view this fit for each file you process to make sure that it passes the eye test.</strong></p>
 <p>We can see the quantification by printing the peak table</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[12]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre>
@@ -818,7 +820,7 @@ Fitting peak windows...: 100%|██████████| 2/2 [00:01&lt;00:0
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[12]:
 </pre></div>
 </div>
 <div class="output_area rendered_html docutils container">
@@ -901,7 +903,7 @@ Fitting peak windows...: 100%|██████████| 2/2 [00:01&lt;00:0
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Processing files...: 100%|██████████| 9/9 [00:03&lt;00:00,  2.37it/s]
+Processing files...: 100%|██████████| 9/9 [00:02&lt;00:00,  4.04it/s]
 </pre></div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -912,7 +914,7 @@ Processing files...: 100%|██████████| 9/9 [00:03&lt;00:00,  
 </div>
 <p>With the peak table <code class="docutils literal notranslate"><span class="pre">peaks</span></code> as the output</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[15]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[14]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre>
@@ -921,7 +923,7 @@ Processing files...: 100%|██████████| 9/9 [00:03&lt;00:00,  
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[15]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[14]:
 </pre></div>
 </div>
 <div class="output_area rendered_html docutils container">

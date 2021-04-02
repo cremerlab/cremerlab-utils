@@ -43,13 +43,15 @@ page.
    :maxdepth: 1
    :caption: User Guide 
 
-   hplc_processing.ipynb
+   getting_started/hplc_processing.ipynb
 
 .. toctree::
    :maxdepth: 4
    :caption: API Documentation
 
    hplc 
+   growth 
+   bayes
 
 
 Index

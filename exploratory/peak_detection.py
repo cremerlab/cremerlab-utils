@@ -17,7 +17,7 @@ time = np.arange(start, end, step)
 # Define peaks and width
 intensities = np.array([1700, 4000, 2000, 1000, 100, 3000, 1000, 1000, 3000])
 locs = 60 * np.array([2, 10, 15, 20, 25, 30, 31.5, 37, 38.5 ])
-scales =np.array([ 25, 15, 20, 30, 45, 20, 30, 30, 20])
+scales =np.array([ 25, 15, 20, 30, 45, 20, 40, 30, 20])
 alphas = [0, 0, 8, 0, 0, 2, 0, 1, 2]
 ints = np.empty((len(locs), len(time)))
 
@@ -36,8 +36,8 @@ test_df['intensity_mV'] = signal
 test_df['time_min'] = time / 60
 # test_df = pd.read_csv('../exploratory_data/out/2021-03-17_NC_glucose_medium001_test.csv', comment='#')
 time_window = None
-chrom = cremerlab.hplc.Chromatogram(dataframe=test_df, time_window=time_window)
-peaks = chrom.quantify(buffer=10, rel_height=0.999)
+chrom = cremerlab.hplc.Chromatogram(test_df, time_window=time_window)
+peaks = chrom.quantify()
 _ = chrom.show()
 
 #%%

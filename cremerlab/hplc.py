@@ -4,6 +4,7 @@ from io import StringIO
 import shutil
 import scipy.signal
 import scipy.optimize
+import scipy.special
 import tqdm
 import os 
 from datetime import datetime
@@ -502,9 +503,25 @@ class Chromatogram(object):
         scaled_pdf : float or numpy array, same shape as `x`
             The PDF of the skew-normal distribution scaled with the supplied 
             amplitude.
+
+        Notes
+        -----
+        This function infers the parameters defining skew-norma distributions 
+        for each peak in the chromatogram. The fitted distribution has the form 
+            
+        .. math:: 
+            I = 2I_\text{max} \left(\frac{1}{\sqrt{2\pi\sigma^2}}\right)e^{-\frac{(t - r_t)^2}{2\sigma^2}}\left[1 + \text{erf}\frac{\alpha(t - r_t)}{\sqrt{2\sigma^2}}\right]
+
+        where :math:`I_\text{max}` is the maximum intensity of the peak, 
+        :math:`t` is the time, :math:`r_t` is the retention time, :math:`\sigma`
+        is the scale parameter, and :math:`\alpha` is the skew parameter.
+
         """
         amp, loc, scale, alpha = params
-        return amp * scipy.stats.skewnorm(alpha, loc=loc, scale=scale).pdf(x)
+        _x = alpha * (x - loc) / scale
+        norm = np.sqrt(2 * np.pi * scale**2)**-1 * np.exp(-(x - loc)**2 / (2 * scale**2))
+        cdf = 0.5 * (1 + scipy.special.erf(_x / np.sqrt(2))) 
+        return amp * 2 * norm * cdf
 
     def _fit_skewnorms(self, x, *params):
         R"""
@@ -608,9 +625,9 @@ class Chromatogram(object):
         self.peak_props = peak_props
         return peak_props
 
-    def quantify(self, time_window=None, prominence=1E-3, rel_height=0.99, 
+    def quantify(self, time_window=None, prominence=1E-3, rel_height=1.0, 
                  buffer=100, verbose=True):
-        """
+        R"""
         Quantifies peaks present in the chromatogram
 
         Parameters
@@ -635,6 +652,20 @@ class Chromatogram(object):
         -------
         peak_df : pandas DataFrame
             A dataframe containing information for each detected peak.
+
+
+        Notes
+        -----
+        This function infers the parameters defining skew-norma distributions 
+        for each peak in the chromatogram. The fitted distribution has the form 
+            
+        .. math:: 
+            I = 2I_\text{max} \left(\frac{1}{\sqrt{2\pi\sigma^2}}\right)e^{-\frac{(t - r_t)^2}{2\sigma^2}}\left[1 + \text{erf}\frac{\alpha(t - r_t)}{\sqrt{2\sigma^2}}\right]
+
+        where :math:`I_\text{max}` is the maximum intensity of the peak, 
+        :math:`t` is the time, :math:`r_t` is the retention time, :math:`\sigma`
+        is the scale parameter, and :math:`\alpha` is the skew parameter.
+
         """
         if time_window is not None:
             dataframe = self.df

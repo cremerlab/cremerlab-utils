@@ -39,21 +39,21 @@ def steady_state_growth_rate_log_posterior(params, time, od, neg=True):
     is chosen to be a normal distribution parameterized as:
 
     .. math::
-        f(OD, t \vert \lambda, OD_0, \sigma) \propto \frac{1}{\sqrt{2\pi\sigma^2}\exp\left[-\frac{\left(OD - OD^*\right)^2}{2\sigma^2}}\right]
+        f(OD, t \\vert \lambda, OD_0, \sigma) \propto \\frac{1}{\sqrt{2\pi\sigma^2}\exp\left[-\\frac{\left(OD - OD^*\right)^2}{2\sigma^2}}\right]
 
     where :math:`OD^*` is the theoretically predicted optical density in
     steady-state exponential growth given the parameters :math:`\lambda` and 
     :math:`OD_0`, 
 
     .. math::
-        OD^*(\lambda, OD_0\,\vert\,t) = OD_0\exp\left[\lambda t\right].
+        OD^*(\lambda, OD_0\,\\vert\,t) = OD_0\exp\left[\lambda t\right].
     
     The prior distributions for all three parameters :math:`\theta` 
     (:math:`[\lambda, OD_0, \sigma] \in \theta` ):math:`\lambda`, :math:`OD_0`,
     and :math:`\sigma` are taken as gamma distributions parameterized as 
 
     .. math::
-        g(\theta\,\vert\,\alpha, \beta) = \frac{1}{\Gamma(\alpha)}\frac{(\beta\theta)^\alpha}{\theta}\exp\left[-\beta\theta\right].
+        g(\theta\,\\vert\,\alpha, \beta) = \\frac{1}{\Gamma(\alpha)}\\frac{(\beta\theta)^\alpha}{\theta}\exp\left[-\beta\theta\right].
     
     In this case, the parameters :math:`\alpha`, and :math:`\beta` are chosen to 
     be 2.20 and 5, respectively. This choice results in 95% of the density 
@@ -64,7 +64,6 @@ def steady_state_growth_rate_log_posterior(params, time, od, neg=True):
         """
         Computes the theoretical optical density as a function of time 
         given the growth rate (lam) and the initial optical density (od_init)
-
         """
         return od_init * np.exp(lam * time)
 
@@ -72,7 +71,6 @@ def steady_state_growth_rate_log_posterior(params, time, od, neg=True):
         """
         Defines the log prior for the growth rate (lam), initial optical density
         (od_init), and the homoscedastic error (sigma) as a gamma distribution. 
-
         """
         lam_lp = scipy.stats.gamma.logpdf(lam, 2.20, loc=0, scale=0.2)
         sig_lp = scipy.stats.gamma.logpdf(sigma, 2.20, loc=0, scale=0.2)
@@ -84,7 +82,6 @@ def steady_state_growth_rate_log_posterior(params, time, od, neg=True):
         Defines the log likelihood for the growth rate. Likelihood function is 
         assumed to be a normal distribution with a mean defined by the 
         theoretical exponential growth and a homoscedastic error.
-
         """
         mu = _theoretical_od(time, lam, od_init)
         return np.sum(scipy.stats.norm.logpdf(od, mu, sigma))

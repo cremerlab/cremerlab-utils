@@ -148,8 +148,79 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
         out = df
     return out
 
-def convert(file_path, detector='B', delimiter=',', output_dir=None, 
-            save_prefix=None, save_suffix=None, verbose=True):
+def scrape_peak_table(file, detector='B', delimiter=','):
+    """
+    Scrapes the Shimadzu-generated peak table output from the ASCII output.
+
+    Parameters
+    ----------
+    file : str 
+        The contents of the file as a string with newline characters (`\\n`) present. 
+    detector: str, 'A' or 'B'
+        The name of the detector in the file. Default is `B`. Note that only that only 
+        'A' or 'B' is an acceptable input and not the complete detector name such as 
+        'Peak Table(Detector B)'. 
+    delimiter: str 
+        The delimeter used in the file. If  tab-delimited, use `\\t`.
+
+    Returns
+    -------
+    peaks : pandas DataFrame
+        A tidy pandas DataFrame with the identified peaks, times, areas, and 
+        heights.
+
+    Notes
+    -----
+    This function assumes that the detector name follows the convention 
+    `[Peak Table(Detector A/B]` where `A/B` is the detector label 
+    and `X` is the channel number. 
+
+    Raises
+    ------
+    TypeError :
+        Raised if file, detctor, or delimiter is not of type `str`.
+    ValueError:
+        Raised if `[LC Chromatogram(Detector`, `\\n`, or delimiter is not present in file.
+        Also raised if `detector.upper()` is not `A` or `B`
+    """
+    # Do type checks. 
+    for arg in (file, detector, delimiter):
+        if type(arg) is not str:
+            raise TypeError(f'Type of `{arg}` must be `str`. Type {type(arg)} was provided.')
+    for st in ['[Peak Table(Detector', '\n', delimiter]:
+        if st not in file:
+            raise ValueError(f'Pattern {st} not present in file.')
+    if (detector.upper() != 'A') & (detector.upper() != 'B'):
+        raise ValueError(f'Detector must be `A` or `B`. String of `{detector.upper()}` was provided.')
+
+    # Parse and split the file to get the chromatogram
+    peaks = file.split(
+                    f'[Peak Table(Detector {detector.upper()}'
+                    )[1]
+    if '[' in peaks:
+        peaks = peaks.split('[')[0]
+    
+    peaks = '\n'.join(peaks.split('\n')[1:])
+    
+    # Read into as a dataframe.
+    df = pd.read_csv(StringIO(peaks), delimiter=delimiter, skiprows=1)
+
+    # Rename the columns
+    df = df[['Peak#', 'R.Time', 'I.Time', 'F.Time', 'Area', 'Height']]
+    df.rename(columns={'Peak#':'peak_idx', 'R.Time':'retention_time', 
+                       'I.Time': 'arrival_time', 'F.Time':'departure_time',
+                       'Area':'area', 'Height':'height'}, inplace=True)
+    df['detector'] = detector
+
+    # Dropnas
+    df.dropna(inplace=True)
+
+    # Determine if the metadata should be scraped and returned
+    return df 
+
+def convert(file_path, detector='B', delimiter=',', peak_table=False, 
+            output_dir=None,  save_prefix=None, save_suffix=None, 
+            verbose=True):
     """
     Reads the ASCII output from a Shimadzu HPLC and returns a DataFrame of the
     chromatogram. Converted files can also be saved to disk with human-readable 
@@ -166,6 +237,9 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
     delimiter: str 
         The delimiter used in the file. If  tab-delimited, use `\t`. Default is 
         a comma, `,`.
+    peak_table: bool
+        If True, the peak table is also parsed and is saved in the directory 
+        with the extra suffix `_peaks`
     output_dir : str or None
         The output directory if the dataframe are to be saved to disk. If 
         `None` and `save = True`, the dataframe will be saved in the directory 
@@ -199,7 +273,8 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
         if os.path.isdir(f'{output_path}/converted') == False:
             os.mkdir(f'{output_path}/converted')
         output_path += '/converted'
-
+    else:
+        output_path = output_dir
     for _, f in iterator:
         with open(f, 'r') as file:
             raw_file = file.read()
@@ -210,6 +285,7 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
             if type(detector) == str:
                 detector = [detector]
             chroms = []
+            peaks = []
             chrom_metadata = {}
             chrom_file_metadata = []
             for d in detector:
@@ -218,6 +294,11 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
                 _chrom, _chrom_metadata = scrape_chromatogram(raw_file, 
                                                             detector=d, 
                                                             delimiter=delimiter)    
+                if peak_table:
+                    _peaks = scrape_peak_table(raw_file,
+                                               detector=d,
+                                               delimiter=delimiter)
+                    peaks.append(_peaks)
                 chroms.append(_chrom)
                 chrom_metadata[f'Detector {d}'] = _chrom_metadata
 
@@ -233,8 +314,12 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
                 chrom_file_metadata.append(_metadata)
             if len(detector) == 1: 
                 chrom = chroms[0]
+                if peak_table:
+                    peaks = peaks[0]
             else:
                 chrom = pd.concat(chrom, sort=False)
+                if peak_table:
+                    peaks = pd.concat(peaks, sort=False)
             if type(detector) == str:
                 detector = [detector]
 
@@ -250,7 +335,6 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
 """
             for m in chrom_file_metadata:
                 header += m
-
             # Process prefix and suffix to the save file
             name = ''
             if save_prefix is not None:
@@ -258,21 +342,33 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
             name += file_metadata['Sample Name']
             if save_suffix is not None:
                 name += '_' + save_suffix
-            name += '.csv'
+            if peak_table:
+                peak_name = name + '_peak_table.csv'
+                peak_save_name = f'{output_path}/{peak_name}'
+            name += '_chromatogram.csv'
             save_name = f'{output_path}/{name}'
+
             if os.path.isfile(save_name):
                 exists = True
                 iter = 0
                 while exists:
                     new_name = f'{save_name.split(".csv")[0]}_{iter}.csv'
+                    if peak_table:
+                        new_peak_name = f'{peak_save_name.split(".csv")[0]}_{iter}.csv'
                     if os.path.isfile(new_name):
                         iter += 1
                     else:
                         exists = False
                 save_name = new_name
+                peak_save_name = new_peak_name
             with open(save_name, 'a') as save_file:
                 save_file.write(header)
                 chrom.to_csv(save_file, index=False) 
+            if peak_table:
+                with open(peak_save_name, 'a') as save_file:
+                    save_file.write(header)
+                    peaks.to_csv(save_file, index=False) 
+
     print(f'Converted file(s) saved to `{output_path}`')
 
 class Chromatogram(object):
@@ -469,7 +565,7 @@ class Chromatogram(object):
             _dict = {'time_range':d[self.time_col].values,
                      'intensity': d[self.int_col] - baselines[i],
                      'num_peaks': len(_peaks),
-                     'amplitude': [d[d['time_idx']==p][self.int_col].values[0] for p in _peaks],
+                     'amplitude': [d[d['time_idx']==p][self.int_col].values[0] - baselines[i] for p in _peaks],
                      'location' : [d[d['time_idx']==p][self.time_col].values[0] for p in _peaks],
                      'width' :    [widths[ind] * time_step for ind in peak_inds]
                      }
@@ -829,7 +925,7 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
     for g, d in chrom_df.groupby(['sample']): 
         ax[mapper[g]].plot(d[cols['time']], d[cols['intensity']], 'k-', lw=0.5,
                            label='raw chromatogram')
-        ax[mapper[g]].set_title(g, fontsize=8)
+        ax[mapper[g]].set_title(' '.join(g.split('_')), fontsize=6)
 
     # Plot the mapped peaks
     for g, d in peak_df.groupby(['sample']):

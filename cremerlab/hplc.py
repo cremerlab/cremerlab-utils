@@ -1,3 +1,4 @@
+from time import sleep
 import pandas as pd 
 import numpy as np
 from io import StringIO
@@ -142,7 +143,7 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
     return out
 
 def convert(file_path, detector='B', delimiter=',', output_dir=None, 
-            save_prefix=None, save_suffix=None, verbose=True):
+            save_prefix=None, save_suffix=None, verbose=True, overwrite_output_dir=False):
     """
     Reads the ASCII output from a Shimadzu HPLC and returns a DataFrame of the
     chromatogram. Converted files can also be saved to disk with human-readable 
@@ -172,6 +173,8 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
     verbose : bool 
         If True a progress bar will print if there's more than 5 files to 
         process.
+    overwrite_output_dir : bool
+        If True, empty `output_dir` and populate exclusively with the converted files
     """
 
     # Determine the size of the  
@@ -194,9 +197,15 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
         output_path += '/converted'
     else:
         output_path = output_dir
-        if os.path.isdir(output_path)==False:
+        if os.path.isdir(output_path)==True:
+            if overwrite_output_dir:
+                if os.path.isdir(output_path):
+                    shutil.rmtree(output_path)
+            else:
+                raise FileExistsError(output_path)
+        else:
             # recursively makes all intermediate dirs, if missing
-            os.makedirs(f'{output_path}/converted')
+            os.makedirs(output_path)
 
     for _, f in iterator:
         with open(f, 'r') as file:

@@ -167,9 +167,10 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
         The delimiter used in the file. If  tab-delimited, use `\t`. Default is 
         a comma, `,`.
     output_dir : str or None
-        The output directory if the dataframe are to be saved to disk. If 
-        `None` and `save = True`, the dataframe will be saved in the directory 
-        of the `file` in an `output` folder. 
+        The output directory (provided as a global path, starting with '/') if 
+        the dataframes are to be saved to disk. If `None` and `save = True`,
+        the dataframe will be saved in the directory of the `file` in
+        an `output` folder.
     save_prefix : str
         A prefix to append to the file name if saved to disk. If None, 
         saved filed will just be `SAMPLE_NAME.csv`.       
@@ -199,6 +200,11 @@ def convert(file_path, detector='B', delimiter=',', output_dir=None,
         if os.path.isdir(f'{output_path}/converted') == False:
             os.mkdir(f'{output_path}/converted')
         output_path += '/converted'
+    else:
+        output_path = output_dir
+        if os.path.isdir(output_path)==False:
+            # recursively makes all intermediate dirs, if missing
+            os.makedirs(f'{output_path}/converted')
 
     for _, f in iterator:
         with open(f, 'r') as file:

@@ -1,3 +1,4 @@
+from time import sleep
 import pandas as pd 
 import numpy as np
 from io import StringIO
@@ -15,7 +16,6 @@ def scrape_metadata(file, delimiter=','):
     """
     Scrapes the sample information from the output of a Shimadzu HPLC ASCII 
     file and returns a dictionary of the metadata entries. 
-
     Parameters
     ----------
     file : str 
@@ -27,13 +27,11 @@ def scrape_metadata(file, delimiter=','):
     metadata_dict : dictionary
         A dictionary of the metadata listed under the 'Sample Information', excluding 
         ISTD Amounts.
-
     Notes
     -----
     This function assumes that the file contains metadata fields `[Sample Information]`
     followed by `[Original Files]`. If either `[Sample Information]` or `[Original Files]`
     fields are missing or have other names, a ValueError exception is thrown. 
-
     Raises
     ------
     TypeError
@@ -72,7 +70,6 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
     """
     Scrapes the chromatogram for a given detector from a Shimadzu HPLC
     ASCII output.
-
     Parameters
     ----------
     file : str 
@@ -86,7 +83,6 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
     metadata : bool
         If `true`, a dictionary with the metadata about the detector is returned. 
         Default is True. 
-
     Returns
     -------
     chrom : pandas DataFrame
@@ -94,13 +90,11 @@ def scrape_chromatogram(file, detector='B', delimiter=',', metadata=True):
     metadata_dict : dictionary
         A dictionary of the metadata associated with the desired detector channel.
         if `metadata` is not `True`, this is not returned. 
-
     Notes
     -----
     This function assumes that the detector name follows the convention 
     `[LC Chromatogram(Detector A/B-ChX]` where `A/B` is the detector label 
     and `X` is the channel number. 
-
     Raises
     ------
     TypeError :
@@ -220,12 +214,11 @@ def scrape_peak_table(file, detector='B', delimiter=','):
 
 def convert(file_path, detector='B', delimiter=',', peak_table=False, 
             output_dir=None,  save_prefix=None, save_suffix=None, 
-            verbose=True):
+            verbose=True, overwrite_output_dir=False):
     """
     Reads the ASCII output from a Shimadzu HPLC and returns a DataFrame of the
     chromatogram. Converted files can also be saved to disk with human-readable 
     metadata. 
-
     Parameters
     ----------
     file_path : str or list of str
@@ -241,9 +234,10 @@ def convert(file_path, detector='B', delimiter=',', peak_table=False,
         If True, the peak table is also parsed and is saved in the directory 
         with the extra suffix `_peaks`
     output_dir : str or None
-        The output directory if the dataframe are to be saved to disk. If 
-        `None` and `save = True`, the dataframe will be saved in the directory 
-        of the `file` in an `output` folder. 
+        The output directory (provided as a global path, starting with '/') if 
+        the dataframes are to be saved to disk. If `None` and `save = True`,
+        the dataframe will be saved in the directory of the `file` in
+        an `output` folder.
     save_prefix : str
         A prefix to append to the file name if saved to disk. If None, 
         saved filed will just be `SAMPLE_NAME.csv`.       
@@ -253,6 +247,8 @@ def convert(file_path, detector='B', delimiter=',', peak_table=False,
     verbose : bool 
         If True a progress bar will print if there's more than 5 files to 
         process.
+    overwrite_output_dir : bool
+        If True, empty `output_dir` and populate exclusively with the converted files
     """
 
     # Determine the size of the  
@@ -275,6 +271,19 @@ def convert(file_path, detector='B', delimiter=',', peak_table=False,
         output_path += '/converted'
     else:
         output_path = output_dir
+<<<<<<< HEAD
+        if os.path.isdir(output_path)==True:
+            if overwrite_output_dir:
+                if os.path.isdir(output_path):
+                    shutil.rmtree(output_path)
+            else:
+                raise FileExistsError(output_path)
+        else:
+            # recursively makes all intermediate dirs, if missing
+            os.makedirs(output_path)
+
+=======
+>>>>>>> 1c5728a07aa6d1a066947ea244b9929b3b0b1f6d
     for _, f in iterator:
         with open(f, 'r') as file:
             raw_file = file.read()
@@ -381,7 +390,6 @@ class Chromatogram(object):
         """
         Instantiates a chromatogram object on which peak detection and quantification
         is performed.
-
         Parameters
         ----------
         file: str or pandas DataFrame, optional
@@ -445,7 +453,6 @@ class Chromatogram(object):
     def crop(self, time_window=None, return_df=False):
         """
         Restricts the time dimension of the DataFrame
-
         Parameters
         ----------
         time_window : list [start, end], optional
@@ -453,7 +460,6 @@ class Chromatogram(object):
             If None, the entire time range of the chromatogram will be considered.
         return_df : bool
             If `True`, the cropped DataFrame is 
-
         Returns
         -------
         cropped_df : pandas DataFrame
@@ -471,7 +477,6 @@ class Chromatogram(object):
     def _assign_peak_windows(self, prominence, rel_height, buffer):
         """
         Breaks the provided chromatogram down to windows of likely peaks. 
-
         Parameters
         ----------
         prominence : float,  [0, 1]
@@ -484,7 +489,6 @@ class Chromatogram(object):
         buffer : positive int
             The padding of peak windows in units of number of time steps. Default 
             is 100 points on each side of the identified peak window.
-
         Returns
         -------
         windows : pandas DataFrame
@@ -577,7 +581,6 @@ class Chromatogram(object):
         R"""
         Computes the lineshape of a skew-normal distribution given the shape,
         location, and scale parameters
-
         Parameters
         ----------
         x : float or numpy array
@@ -593,13 +596,11 @@ class Chromatogram(object):
                     The scale parameter of the distribution.
                 alpha : float; > 
                     THe skew shape parater of the distribution.
-
         Returns
         -------
         scaled_pdf : float or numpy array, same shape as `x`
             The PDF of the skew-normal distribution scaled with the supplied 
             amplitude.
-
         Notes
         -----
         This function infers the parameters defining skew-norma distributions 
@@ -607,11 +608,9 @@ class Chromatogram(object):
             
         .. math:: 
             I = 2I_\text{max} \left(\frac{1}{\sqrt{2\pi\sigma^2}}\right)e^{-\frac{(t - r_t)^2}{2\sigma^2}}\left[1 + \text{erf}\frac{\alpha(t - r_t)}{\sqrt{2\sigma^2}}\right]
-
         where :math:`I_\text{max}` is the maximum intensity of the peak, 
         :math:`t` is the time, :math:`r_t` is the retention time, :math:`\sigma`
         is the scale parameter, and :math:`\alpha` is the skew parameter.
-
         """
         amp, loc, scale, alpha = params
         _x = alpha * (x - loc) / scale
@@ -623,7 +622,6 @@ class Chromatogram(object):
         R"""
         Estimates the parameters of the distributions which consititute the 
         peaks in the chromatogram. 
-
         Parameters
         ----------
         x : float
@@ -640,7 +638,6 @@ class Chromatogram(object):
                     The scale parameter of the distribution.
                 alpha : float; > 
                     THe skew shape parater of the distribution.
-
         Returns
         -------
         out : float
@@ -662,7 +659,6 @@ class Chromatogram(object):
         R"""
         For each peak window, estimate the parameters of skew-normal distributions 
         which makeup the peak(s) in the window.  
-
         Parameters
         ----------
         verbose : bool
@@ -725,7 +721,6 @@ class Chromatogram(object):
                  buffer=100, verbose=True):
         R"""
         Quantifies peaks present in the chromatogram
-
         Parameters
         ----------
         time_window: list [start, end], optional
@@ -743,13 +738,10 @@ class Chromatogram(object):
             is 100 points on each side of the identified peak window. 
         verbose : bool
             If True, a progress bar will be printed during the inference. 
-
         Returns
         -------
         peak_df : pandas DataFrame
             A dataframe containing information for each detected peak.
-
-
         Notes
         -----
         This function infers the parameters defining skew-norma distributions 
@@ -757,11 +749,9 @@ class Chromatogram(object):
             
         .. math:: 
             I = 2I_\text{max} \left(\frac{1}{\sqrt{2\pi\sigma^2}}\right)e^{-\frac{(t - r_t)^2}{2\sigma^2}}\left[1 + \text{erf}\frac{\alpha(t - r_t)}{\sqrt{2\sigma^2}}\right]
-
         where :math:`I_\text{max}` is the maximum intensity of the peak, 
         :math:`t` is the time, :math:`r_t` is the retention time, :math:`\sigma`
         is the scale parameter, and :math:`\alpha` is the skew parameter.
-
         """
         if time_window is not None:
             dataframe = self.df
@@ -837,7 +827,6 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
     """
     Performs complete quantification of a set of HPLC data. Data must first 
     be converted to a tidy long-form CSV file by using `cremerlab.hplc.convert`
-
     Parameters
     ----------
     file_paths : list of str
@@ -853,7 +842,6 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
         chromatogram. Default is `{'time':'time_min', 'intensity':'intensity_mV'}`.
     kwargs: dict, **kwargs
         **kwargs for the peak quantification function `cremerlab.hplc.Chromatogram.quantify`
-
     Returns 
     --------
     chrom_df : pandas DataFrame
@@ -945,4 +933,3 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
     if show_viz == False:
         plt.close()
     return [chrom_df, peak_df, [fig, ax]]
-

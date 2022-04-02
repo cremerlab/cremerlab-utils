@@ -38,7 +38,8 @@ def scrape_metadata(file, delimiter=','):
         Raised if file is not of type `str`
     ValueError:
         Raised if `[Sample Information]`, `[Original Files]`, `\\n`, or delimiter
-        is not present in file
+        is not present in filebounpar
+        
     """
     # Make sure the 'file' provided is a string and has necessary fields. 
     if type(file) != str:
@@ -271,7 +272,6 @@ def convert(file_path, detector='B', delimiter=',', peak_table=False,
         output_path += '/converted'
     else:
         output_path = output_dir
-<<<<<<< HEAD
         if os.path.isdir(output_path)==True:
             if overwrite_output_dir:
                 if os.path.isdir(output_path):
@@ -282,8 +282,6 @@ def convert(file_path, detector='B', delimiter=',', peak_table=False,
             # recursively makes all intermediate dirs, if missing
             os.makedirs(output_path)
 
-=======
->>>>>>> 1c5728a07aa6d1a066947ea244b9929b3b0b1f6d
     for _, f in iterator:
         with open(f, 'r') as file:
             raw_file = file.read()
@@ -358,7 +356,7 @@ def convert(file_path, detector='B', delimiter=',', peak_table=False,
             save_name = f'{output_path}/{name}'
 
             if os.path.isfile(save_name):
-                exists = True
+                exists = Truep
                 iter = 0
                 while exists:
                     new_name = f'{save_name.split(".csv")[0]}_{iter}.csv'
@@ -474,7 +472,7 @@ class Chromatogram(object):
         if return_df:
             return self.df
 
-    def _assign_peak_windows(self, prominence, rel_height, buffer):
+    def _assign_peak_windows(self, prominence, rel_height, buffer, manual_peak_positions=None):
         """
         Breaks the provided chromatogram down to windows of likely peaks. 
         Parameters
@@ -489,6 +487,8 @@ class Chromatogram(object):
         buffer : positive int
             The padding of peak windows in units of number of time steps. Default 
             is 100 points on each side of the identified peak window.
+        manual_peak_positions : list of floats
+            to provide peak position by hand instead of estimating peak positions via script
         Returns
         -------
         windows : pandas DataFrame
@@ -515,15 +515,32 @@ class Chromatogram(object):
         intensity = self.df[self.int_col].values
         norm_int = (intensity - intensity.min()) / (intensity.max() - intensity.min())
 
+
+
         # Identify the peaks and get the widths and baselines
-        peaks, _ = scipy.signal.find_peaks(norm_int, prominence=prominence)
+        if manual_peak_positions==None:
+            peaks, _ = scipy.signal.find_peaks(norm_int, prominence=prominence)
+        else:
+            timew = self.df[self.time_col].values
+            deltatw= (timew[-1]-timew[0])/np.float(timew.shape[0])
+            peaks = np.int_((np.array(manual_peak_positions)-timew[0])/deltatw) #peeak position in descrete step of time-window
+            #print("peaks detected at times : "+str(self.df[self.time_col].values[peaks]))
+            # 
+            #print(timew[peaks]) #time of detected peaks
+        if peaks[0]==0: #do not use first peak if it is exactly at left boundrary #maybe better solution
+            peaks=peaks[1:]
         self.peaks_inds = peaks
+
+        #need to fix, not needed for manual peak position
         out = scipy.signal.peak_widths(intensity, peaks, 
                                        rel_height=rel_height)
         _, heights, left, right = out
         widths, _, _, _ = scipy.signal.peak_widths(intensity, peaks, 
                                        rel_height=0.5)
-
+        
+        ###? how to setup such that split is between separated peaks
+        ###? I also don't understand the baseline logic here.
+        ###
         # Set up the ranges
         ranges = []
         for l, r in zip(left, right):
@@ -547,9 +564,10 @@ class Chromatogram(object):
         
         # Keep only valid ranges and baselines
         ranges = [r for i, r in enumerate(ranges) if valid[i] is True]
-        baselines = [h for i, h in enumerate(heights) if valid[i] is True]
+        baselines = [h for i, h in enumerate(heights) if valid[i] is True] #? what is baseline correction....
 
         # Copy the dataframe and return the windows
+        
         window_df = df.copy(deep=True)
         window_df.sort_values(by=self.time_col, inplace=True)
         window_df['time_idx'] = np.arange(len(window_df))
@@ -567,9 +585,11 @@ class Chromatogram(object):
             _peaks = [p for p in peaks if p in d['time_idx'].values]
             peak_inds = [x for _p in _peaks for x in np.where(peaks == _p)[0]]
             _dict = {'time_range':d[self.time_col].values,
-                     'intensity': d[self.int_col] - baselines[i],
+                     'intensity': d[self.int_col] - baselines[i], #? is this the good correction to make
+                     'intensity_nobaselinecorrection': d[self.int_col] - baselines[i], #added
                      'num_peaks': len(_peaks),
                      'amplitude': [d[d['time_idx']==p][self.int_col].values[0] - baselines[i] for p in _peaks],
+                     'amplitude_nobaselinecorrection': [d[d['time_idx']==p][self.int_col].values[0] for p in _peaks],
                      'location' : [d[d['time_idx']==p][self.time_col].values[0] for p in _peaks],
                      'width' :    [widths[ind] * time_step for ind in peak_inds]
                      }
@@ -655,12 +675,25 @@ class Chromatogram(object):
             out += self._compute_skewnorm(x, *params[i])
         return out
         
-    def _estimate_peak_params(self, verbose=True):
+    def _estimate_peak_params(self, boundpars=None, verbose=True):
         R"""
         For each peak window, estimate the parameters of skew-normal distributions 
         which makeup the peak(s) in the window.  
         Parameters
         ----------
+        boundpars : list
+            Used to provide boundaries for peak fittng function
+            8 boundaries provided (default value in parenthesis)
+                1. lower boundary amplitude (0) 
+                2. lower boundary time window; difference to peak position
+                3. lower boundary peak width (0.0)
+                4. lower boundary skew parameter (-np.inf)
+                5. upper boundary amplitude (np.inf) 
+                6. upper boundary time window; difference to peak position
+                7. upper boundary peak width (np.inf)
+                8. upper boundary skew parameter (np.inf)
+                
+        
         verbose : bool
             If `True`, a progress bar will be printed during the inference.
         """ 
@@ -670,7 +703,6 @@ class Chromatogram(object):
             iterator = tqdm.tqdm(self.window_props.items(), desc='Fitting peak windows...')  
         else:
             iterator = self.window_props.items()
-
         peak_props = {}
         for k, v in iterator:
             window_dict = {}
@@ -678,26 +710,53 @@ class Chromatogram(object):
             p0 = [] 
             bounds = [[],  []] 
             for i in range(v['num_peaks']):
-                p0.append(v['amplitude'][i])
+                
+                if v['amplitude'][i]<0: #ignore peaks with negative amplitude
+                    print("peak "+str(i)+"amplitude: "+str(v['amplitude'][i])+" at position: "+str(v['location'][i]))
+                    print("Warning: negative amplitude. Value before reset: "+str(v['amplitude'][i])+" at time "+str(v['location'][i]))
+                    v['amplitude'][i]=0
+                if v['amplitude_nobaselinecorrection'][i]<0: #ignore peaks with negative amplitude
+                    print("peak "+str(i)+"amplitude: "+str(v['amplitude'][i])+" at position: "+str(v['location'][i]))
+                    print("Warning: negative amplitude. Value before reset: "+str(v['amplitude_nobaselinecorrection'][i])+" at time "+str(v['location'][i]))
+                    v['amplitude_nobaselinecorrection'][i]=0
+                    
+                p0.append(v['amplitude_nobaselinecorrection'][i]) #before w/ baseline correction
+                
+                    
                 p0.append(v['location'][i]),
-                p0.append(v['width'][i] / 2) # scale parameter
+                p0.append(max(v['width'][i] / 4.,0.3)) # scale parameter
                 p0.append(0) # Skew parameter, starts with assuming Gaussian
 
-                # Set the bounds 
-                bounds[0].append(0)
-                bounds[0].append(v['time_range'].min())
-                bounds[0].append(0)
-                bounds[0].append(-np.inf)
-                bounds[1].append(np.inf)
-                bounds[1].append(v['time_range'].max())
-                bounds[1].append(np.inf)
-                bounds[1].append(np.inf)
-
+                # Set boundaries of fitting
+                if boundpars==None: #standard values
+                    #lower boundaries
+                    bounds[0].append(v['amplitude_nobaselinecorrection'][i]*0.5) #min amplitude
+                    bounds[0].append(v['time_range'].min()) #min peak position
+                    bounds[0].append(0) #min width
+                    bounds[0].append(-np.inf) #min skew parameter
+                    #upper boundaries
+                    bounds[1].append(v['amplitude_nobaselinecorrection'][i]*2+2) #max amplitude #?before with baselinecorrection
+                    bounds[1].append(v['time_range'].max()) #max peak position
+                    bounds[1].append(np.inf) #max width
+                    bounds[1].append(np.inf) #skew parameter
+                else:
+                        #lower boundaries
+                        bounds[0].append(v['amplitude_nobaselinecorrection'][i]*boundpars[0])
+                        bounds[0].append(v['location'][i]-boundpars[1])
+                        bounds[0].append(boundpars[2])
+                        bounds[0].append(boundpars[3])
+                        #upper boundaries
+                        bounds[1].append(v['amplitude_nobaselinecorrection'][i]*boundpars[4]+2)
+                        bounds[1].append(v['location'][i]+boundpars[5]) 
+                        bounds[1].append(boundpars[6]) 
+                        bounds[1].append(boundpars[7]) 
+                
             # Perform the inference
             try:
                 popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, v['time_range'],
                                                v['intensity'], p0=p0, bounds=bounds,
-                                               maxfev=int(1E4))
+                                               maxfev=int(1E6))
+                
 
                 # Assemble the dictionary of output 
                 if v['num_peaks'] > 1:
@@ -706,6 +765,7 @@ class Chromatogram(object):
                     popt = [popt]
                 for i, p in enumerate(popt):
                     window_dict[f'peak_{i + 1}'] = {
+                                'retention_time_firstguess' : v['location'][i],
                                 'amplitude': p[0],
                                 'retention_time': p[1],
                                 'std_dev': p[2],
@@ -713,12 +773,14 @@ class Chromatogram(object):
                                 'area':self._compute_skewnorm(v['time_range'], *p).sum()}
                 peak_props[k] = window_dict
             except RuntimeError:
-                print('Warning: Parameters could not be inferred for one peak')
+                print('Warning: Parameters could not be inferred for one peak') #? or there is no peak in that window
         self.peak_props = peak_props
         return peak_props
 
-    def quantify(self, time_window=None, prominence=1E-3, rel_height=1.0, 
-                 buffer=100, verbose=True):
+    
+    
+    def quantify(self, time_window = None, prominence = 1E-3, rel_height = 1.0,
+                 buffer = 100, manual_peak_positions=None, boundpars=None, peakpositionsonly=False, verbose = True):
         R"""
         Quantifies peaks present in the chromatogram
         Parameters
@@ -736,12 +798,16 @@ class Chromatogram(object):
         buffer : positive int
             The padding of peak windows in units of number of time steps. Default 
             is 100 points on each side of the identified peak window. 
+        manual_peak_positions : list
+            Manual peak positions of chromatogram. When not provided, autodetection of peaks
+        peakpositonsonly : bool
+            If ture, only the peak positions will be provided and no full analys of peaks is included
         verbose : bool
-            If True, a progress bar will be printed during the inference. 
+            If True, a progress bar will be printed during the inference.
         Returns
         -------
         peak_df : pandas DataFrame
-            A dataframe containing information for each detected peak.
+            A dataframe containing information for each detected peak. If peakpositononly=True, this is just a list of peak positions
         Notes
         -----
         This function infers the parameters defining skew-norma distributions 
@@ -757,11 +823,24 @@ class Chromatogram(object):
             dataframe = self.df
             self.df = dataframe[(dataframe[self.time_col] >= time_window[0]) & 
                               (dataframe[self.time_col] <= time_window[1])].copy(deep=True) 
-        # Assign the window bounds
-        _ = self._assign_peak_windows(prominence, rel_height, buffer)
+        
+        # Assign the window bounds (contains peak autodetection)
+        _ = self._assign_peak_windows(prominence, rel_height, buffer, manual_peak_positions=manual_peak_positions)
 
+        #stop script here if only peak positions are wanted
+        if peakpositionsonly:
+            peakpositions=[]
+            iterator = self.window_props.items()
+            peak_props = {}
+            for k, v in iterator: #go through every window
+                window_dict = {}
+                for i in range(v['num_peaks']):
+                    peakpositions.append(v['location'][i])
+            return peakpositions
+            
+        
         # Infer the distributions for the peaks
-        peak_props = self._estimate_peak_params(verbose)
+        peak_props = self._estimate_peak_params(boundpars=boundpars,verbose=verbose)
 
         # Set up a dataframe of the peak properties
         peak_df = pd.DataFrame([])
@@ -769,6 +848,7 @@ class Chromatogram(object):
         for _, peaks in peak_props.items():
             for _, params in peaks.items():
                 _dict = {'retention_time': params['retention_time'],
+                         'retention_time_firstguess': params['retention_time_firstguess'],
                          'scale': params['std_dev'],
                          'skew': params['alpha'],
                          'amplitude': params['amplitude'],
@@ -820,9 +900,134 @@ class Chromatogram(object):
         fig.patch.set_facecolor((0, 0, 0, 0))
         return [fig, ax]
 
+def batch_plot(file_paths, time_window=None, cols={'time':'time_min', 'intensity':'intensity_mV'},upper_limit=None,lower_limit=None, detection_peakpositions=None, plot_verticallines=None ):
+
+    """
+    T plot chromatograms (without any analysis). Use to check chromatograms and identify peak poisitions by hand. Data must first
+    be converted to a tidy long-form CSV file by using `cremerlab.hplc.convert`
+
+    Parameters
+    ----------
+    file_paths : list of str
+        A list of the file paths.
+    time_window : list, optional
+        The upper and lower and upper time bounds to consider for the analysis.
+        Default is `None`, meaning the whole chromatogram is considered.
+    cols: dict, keys of 'time', and 'intensity', optional
+        A dictionary of the retention time and intensity measurements of the
+        chromatogram. Default is `{'time':'time_min', 'intensity':'intensity_mV'}`.
+    upper_limit: upper limit of y-axis, auto-scaling when not provided
+    lower_limit: lower limit of y-axis, auto-scaling when not provided. upper_limit must be defined when used.
+    detection_peakpositions: Set to 'peakautodetection' to detect peaks
+    plot_verticallines: List of retentiontimes to plot as verticallines
+    Returns
+    --------
+    chrom_df : pandas DataFrame
+        A pandas DataFrame  of all of the chromatograms, indexed by file name
+    fig : matplotlib.figure.Figure
+        Matplotlib figure object for the chromatograms
+    ax :  matplotlib AxesSubplot
+        The axes of the matplotlib figure
+    """
+
+    # Instantiate storage lists
+    chrom_dfs, mixes, peakpositions_list= [], [], []
+
+    # Perform the processing for each file
+    for i, f in enumerate(tqdm.tqdm(file_paths, desc='Processing files...')):
+        # Generate the sample id
+        if '/' in f:
+            file_name = f.split('/')[-1]
+        else:
+            file_name = f
+
+        # Check for common file name extension
+        for pat in ['.csv', '.txt']:
+            if pat in file_name:
+                file_name = file_name.split(pat)[0]
+                continue
+
+        # Parse teh chromatogram and quantify the peaks
+        chrom = Chromatogram(f, cols=cols, time_window=time_window)
+        if detection_peakpositions == 'peakautodetection':
+            peakpositionsc = chrom.quantify(verbose=False, peakpositionsonly=True)
+            peakpositions_list.append(peakpositionsc)
+        
+        # Set up the dataframes for chromatograms and peaks
+        _df = chrom.df
+        _df['sample'] = file_name
+        chrom_dfs.append(chrom.df)
+        #mixes.append(chrom.mix_array)
+
+    # Concateante the dataframe
+    chrom_df = pd.concat(chrom_dfs, sort=False)
+    
+    #peak_df = pd.concat(peak_dfs, sort=False)
+
+    # Determine the size of the figure
+    num_traces = len(chrom_df['sample'].unique())
+    num_cols = int(2)
+    num_rows = int(np.ceil(num_traces / num_cols))
+    unused_axes = (num_cols * num_rows) - num_traces
+
+    # Instantiate the figure
+    fig, ax = plt.subplots(num_rows, num_cols, figsize=(7 * num_cols, 5 * num_rows))
+    ax = ax.ravel()
+    for a in ax:
+        a.xaxis.set_tick_params(labelsize=6)
+        a.yaxis.set_tick_params(labelsize=6)
+        a.set_ylabel(cols['intensity'], fontsize=6)
+        a.set_xlabel(cols['time'], fontsize=6)
+    for i in range(unused_axes):
+        ax[-(i + 1)].axis('off')
+
+    # Assign samples to axes.
+    mapper = {g: i for i, g in enumerate(chrom_df['sample'].unique())}
+
+    # Plot the chromatogram
+    for g, d in chrom_df.groupby(['sample']):
+        ax[mapper[g]].plot(d[cols['time']], d[cols['intensity']], 'k-', lw=0.5,
+                           label='raw chromatogram')
+        ax[mapper[g]].set_title(' '.join(g.split('_')), fontsize=12)
+
+        #set y-axis limit
+        if upper_limit != None:
+            ax[mapper[g]].set_ylim(0,upper_limit)
+        if lower_limit != None:
+            ax[mapper[g]].set_ylim(lower_limit,upper_limit)
+        if detection_peakpositions != None:
+            plcvc=-1
+            for plcv in peakpositions_list[mapper[g]]:
+                plcvc=plcvc+1
+                colorlist=['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a']
+                colorc=colorlist[plcvc%10]
+                ax[mapper[g]].axvline(plcv,ls='--',c=colorc)
+            #display("peaks "+str(g)+" "+str(peakpositions_list[mapper[g]]))
+               
+                
+        if plot_verticallines != None:
+            if type(plot_verticallines[0])==list: #list of lists
+                curval=plot_verticallines[mapper[g]]
+            else:
+                curval=plot_verticallines
+            plcvc=-1
+            for plcv in curval:
+                plcvc=plcvc+1
+                colorlist=['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a']
+                colorc=colorlist[plcvc%10]
+                ax[mapper[g]].axvline(plcv,ls=':',c=colorc,lw=2)
+                
+            
+            
+    plt.tight_layout()
+    fig.patch.set_facecolor((0, 0, 0, 0))
+    ax[0].legend(fontsize=6)
+    return [chrom_df, [fig, ax], peakpositions_list]
+
 
 def batch_process(file_paths, time_window=None,  show_viz=False,
-                  cols={'time':'time_min', 'intensity':'intensity_mV'},  
+                  cols={'time':'time_min', 'intensity':'intensity_mV'},
+                  lower_limit=None, upper_limit=None, manual_peak_positions=None,
                   **kwargs):
     """
     Performs complete quantification of a set of HPLC data. Data must first 
@@ -840,6 +1045,13 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
     cols: dict, keys of 'time', and 'intensity', optional
         A dictionary of the retention time and intensity measurements of the 
         chromatogram. Default is `{'time':'time_min', 'intensity':'intensity_mV'}`.
+    manual_peak_positions : list
+        Manual position of peaks (when not provided, autodetection of peak positions)
+        Alternative a list of a list of peaks can be provided - used for the different samples processed during the batch run
+    upper_limit: float
+        for plotting; upper limit of y-axis, auto-scaling when not provided
+    lower_limit: float
+        for plotting; lower limit of y-axis, auto-scaling when not provided. upper_limit must be defined when used.
     kwargs: dict, **kwargs
         **kwargs for the peak quantification function `cremerlab.hplc.Chromatogram.quantify`
     Returns 
@@ -873,8 +1085,10 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
 
         # Parse teh chromatogram and quantify the peaks
         chrom = Chromatogram(f, cols=cols, time_window=time_window)
-        peaks = chrom.quantify(verbose=False, **kwargs)
-
+        if manual_peak_positions==None or type(manual_peak_positions[0]) != list:
+            peaks = chrom.quantify(verbose=False, manual_peak_positions=manual_peak_positions, **kwargs)
+        else:
+            peaks = chrom.quantify(verbose=False, manual_peak_positions=manual_peak_positions[i], **kwargs)
         # Set up the dataframes for chromatograms and peaks
         _df = chrom.df
         _df['sample'] = file_name
@@ -894,7 +1108,7 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
     unused_axes = (num_cols * num_rows) - num_traces
 
     # Instantiate the figure
-    fig, ax = plt.subplots(num_rows, num_cols, figsize=(3 * num_cols, 2 * num_rows))
+    fig, ax = plt.subplots(num_rows, num_cols, figsize=(7 * num_cols, 5 * num_rows))
 
     ax = ax.ravel()
 
@@ -916,17 +1130,32 @@ def batch_process(file_paths, time_window=None,  show_viz=False,
         ax[mapper[g]].set_title(' '.join(g.split('_')), fontsize=6)
 
     # Plot the mapped peaks
+    curgroupby=peak_df.groupby(['sample'])
     for g, d in peak_df.groupby(['sample']):
         mix = mixes[mapper[g]] 
         convolved = np.sum(mix, axis=1)
         for i in range(len(d)): 
             _m = np.array(mix[:, i])
+            colorlist=['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a']
+            colorc=colorlist[i%10]
             time = np.linspace(time_window[0], time_window[1], len(_m))
-            ax[mapper[g]].fill_between(time, 0, _m, alpha=0.5, label=f'peak {i + 1}')
-
+            ax[mapper[g]].fill_between(time, 0, _m, alpha=0.5, label=f'peak {i + 1}',color=colorc)
+            try:
+                ax[mapper[g]].axvline(d.at[i,'retention_time'],ls='--',alpha=1,color=colorc) #print retention time of fit
+                ax[mapper[g]].axvline(d.at[i,'retention_time_firstguess'],ls=':',alpha=0.5,color=colorc) #print retention time of first peak est.
+            except:
+                pass
         time = np.linspace(time_window[0], time_window[1], len(convolved))
         ax[mapper[g]].plot(time, convolved, '--', color='red', lw=0.5, 
                             label=f'inferred mixture')
+
+        #set upper limit
+        if upper_limit != None:
+            ax[mapper[g]].set_ylim(0,upper_limit)
+        if lower_limit != None:
+            ax[mapper[g]].set_ylim(lower_limit,upper_limit)
+
+
     plt.tight_layout()
     fig.patch.set_facecolor((0, 0, 0, 0))
     ax[0].legend(fontsize=6)
